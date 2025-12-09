@@ -1,0 +1,27 @@
+export interface Scene {
+  id: string;
+  description: string;
+}
+
+export interface GeneratedImage {
+  id: string;
+  url: string; // Base64 data URL
+  description: string;
+  type: 'cover' | 'page';
+}
+
+export interface BookData {
+  theme: string;
+  childName: string;
+  ageGroup: string;
+  scenes: Scene[];
+  images: GeneratedImage[];
+}
+
+export enum AppState {
+  INPUT = 'INPUT',
+  PLANNING = 'PLANNING',
+  GENERATING = 'GENERATING',
+  PREVIEW = 'PREVIEW',
+  ERROR = 'ERROR'
+}
