@@ -19,6 +19,130 @@ const getAgeContext = (ageGroup: string) => {
   }
 };
 
+/**
+ * Programmatically generates a handwriting worksheet using HTML5 Canvas.
+ * This ensures perfect text accuracy compared to AI image generation.
+ */
+const generateTracePage = (description: string, fontId: string): string => {
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error("Canvas not supported");
+
+  // A4-ish ratio high res (approx 150 DPI)
+  const width = 1240; 
+  const height = 1754; 
+  canvas.width = width;
+  canvas.height = height;
+
+  // Background
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, width, height);
+
+  // Parse letters from description
+  // Format from generateScenes: "Handwriting practice for letters: A, B, C"
+  const lettersPart = description.split(": ")[1] || "";
+  const letters = lettersPart.split(",").map(s => s.trim()).filter(l => l.length === 1);
+
+  // Layout Constants
+  const marginX = 100;
+  let currentY = 150;
+  
+  // Font Mapping for Header
+  const fontMap: Record<string, string> = {
+    'helvetica': 'Nunito, sans-serif',
+    'chewy': 'Chewy, cursive',
+    'bangers': 'Bangers, cursive',
+    'patrick': '"Patrick Hand", cursive'
+  };
+  const headerFontFamily = fontMap[fontId] || 'Nunito, sans-serif';
+
+  // Header
+  ctx.font = `600 50px ${headerFontFamily}`;
+  ctx.fillStyle = "#1F2937"; // Dark gray
+  ctx.fillText("Name: __________________________", marginX, currentY);
+  currentY += 120; // Space after header
+
+  // Dynamic sizing based on content
+  // We have restricted space. If many letters, shrink slightly.
+  // Standard: ~4-5 letters per page.
+  const availableHeight = height - currentY - 100; // Bottom padding
+  const rowsNeeded = letters.length * 2; // 2 rows per letter
+  // Calculate max row height that fits
+  const maxRowHeight = Math.floor(availableHeight / rowsNeeded);
+  const rowHeight = Math.min(220, Math.max(120, maxRowHeight)); // Clamp between 120 and 220
+  
+  // Font size relative to row height
+  const fontSize = Math.floor(rowHeight * 0.6); 
+  const font = `${fontSize}px Nunito, sans-serif`;
+
+  const guideWidth = width - (marginX * 2);
+
+  const drawGuides = (y: number) => {
+     // Guide lines relative to baseline 'y'
+     const baseline = y;
+     const midline = y - (fontSize * 0.55); // Optically center roughly
+     const topline = y - (fontSize * 1.05);
+
+     ctx.lineWidth = 2;
+     
+     // Top Line (Solid Gray)
+     ctx.beginPath();
+     ctx.moveTo(marginX, topline);
+     ctx.lineTo(width - marginX, topline);
+     ctx.strokeStyle = "#9CA3AF"; 
+     ctx.setLineDash([]);
+     ctx.stroke();
+
+     // Middle Line (Dashed Blue-ish)
+     ctx.beginPath();
+     ctx.moveTo(marginX, midline);
+     ctx.lineTo(width - marginX, midline);
+     ctx.strokeStyle = "#60A5FA"; // Blue-400
+     ctx.setLineDash([15, 15]);
+     ctx.stroke();
+
+     // Bottom Line (Solid Black)
+     ctx.beginPath();
+     ctx.moveTo(marginX, baseline);
+     ctx.lineTo(width - marginX, baseline);
+     ctx.strokeStyle = "#000000";
+     ctx.setLineDash([]);
+     ctx.stroke();
+  };
+
+  letters.forEach(letter => {
+     const pair = `${letter}${letter.toLowerCase()}`; // "Aa"
+     const pairWithSpace = `${pair}    `; // Add spacing for repetition
+     
+     // --- ROW 1: REPEATED PATTERN ---
+     let row1BaseY = currentY + (rowHeight * 0.75);
+     drawGuides(row1BaseY);
+
+     ctx.font = font;
+     ctx.fillStyle = "#D1D5DB"; // Light Gray for tracing
+     
+     let textX = marginX + 20; // Slight indent
+     // Fill the line
+     while (textX + ctx.measureText(pair).width < width - marginX) {
+        ctx.fillText(pair, textX, row1BaseY - (fontSize * 0.05)); // Small visual tweak for baseline
+        textX += ctx.measureText(pairWithSpace).width;
+     }
+     
+     currentY += rowHeight;
+
+     // --- ROW 2: SINGLE + SPACE ---
+     let row2BaseY = currentY + (rowHeight * 0.75);
+     drawGuides(row2BaseY);
+
+     ctx.fillStyle = "#D1D5DB"; 
+     ctx.fillText(pair, marginX + 20, row2BaseY - (fontSize * 0.05));
+     
+     currentY += rowHeight;
+  });
+
+  return canvas.toDataURL("image/png");
+};
+
 export const generateScenes = async (
   theme: string, 
   pageCount: number, 
@@ -100,10 +224,18 @@ export const generateImage = async (
   description: string, 
   type: 'cover' | 'page',
   ageGroup: string = '3-5',
-  mode: ColoringMode = 'standard'
+  mode: ColoringMode = 'standard',
+  fontId: string = 'helvetica'
 ): Promise<string> => {
-  const model = "gemini-2.5-flash-image"; 
+  
+  // INTERCEPT: If mode is trace and it's a page, use programmatic generation
+  if (mode === 'trace' && type === 'page') {
+    // We wrap this in a promise to match the async signature, 
+    // though canvas generation is synchronous.
+    return Promise.resolve(generateTracePage(description, fontId));
+  }
 
+  const model = "gemini-2.5-flash-image"; 
   let prompt = "";
   
   if (type === 'cover') {
@@ -146,28 +278,6 @@ export const generateImage = async (
       IMPORTANT: The image must be segmented into distinct regions. Inside each region, place a capital letter (e.g. A, B, C, D). 
       Include a simple Legend/Key at the bottom of the page (e.g. A=Yellow, B=Green).
       Pure white background. Black line art. No shading, no grayscale, no filled colors.`;
-    } else if (mode === 'trace') {
-      // Extract letters from description "Handwriting practice for letters: A, B, C" -> "A, B, C"
-      const letters = description.replace("Handwriting practice for letters: ", "");
-      
-      prompt = `A clean, black and white handwriting practice worksheet.
-      HEADER: "Name: __________________________"
-      
-      TASK: Create handwriting practice rows for the following letters: ${letters}.
-      
-      FORMAT (Strictly follow this alternating pattern for EACH letter):
-      1. TRACE ROW: Repeat the letter pair (e.g. "A a  A a  A a") across the whole line in DOTTED/DASHED font.
-      2. PRACTICE ROW: Write the letter pair (e.g. "A a") ONCE in DOTTED font at the start, then leave the rest of the line empty for practice.
-      
-      Example layout for letter B:
-      Row 1: B b  B b  B b  B b  B b
-      Row 2: B b  __________________
-      
-      CONSTRAINTS:
-      - NO PICTURES or illustrations.
-      - NO RANDOM LETTERS. Only use the letters specified: ${letters}.
-      - High contrast black lines on white background.
-      - Standard 3-line school writing guides (top, dotted-middle, bottom).`;
     } else {
       prompt = `A black and white coloring book page for children aged ${ageGroup}. 
       Subject: ${description}. 

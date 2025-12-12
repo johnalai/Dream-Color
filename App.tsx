@@ -210,7 +210,7 @@ const App: React.FC = () => {
       
       // Pass existing images if resuming
       const currentImages = isResuming ? bookData.images : [];
-      await generateBookImages(scenesToUse, theme, ageGroup, coloringMode, currentImages);
+      await generateBookImages(scenesToUse, theme, ageGroup, coloringMode, currentImages, selectedFont);
       
     } catch (err) {
       console.error(err);
@@ -224,7 +224,8 @@ const App: React.FC = () => {
     currentTheme: string, 
     currentAge: string, 
     mode: ColoringMode,
-    existingImages: GeneratedImage[]
+    existingImages: GeneratedImage[],
+    fontId: string
   ) => {
     const totalSteps = scenes.length + 1; // +1 for cover
     
@@ -243,7 +244,7 @@ const App: React.FC = () => {
       
       if (!hasCover) {
         setStatusMessage("Designing the cover...");
-        const coverUrl = await generateImage(currentTheme, 'cover', currentAge, mode);
+        const coverUrl = await generateImage(currentTheme, 'cover', currentAge, mode, fontId);
         
         const coverImage: GeneratedImage = {
           id: 'cover',
@@ -278,7 +279,7 @@ const App: React.FC = () => {
 
         setStatusMessage(`Drawing page ${i + 1} of ${scenes.length}: ${scene.description.substring(0, 30)}...`);
         
-        const pageUrl = await generateImage(scene.description, 'page', currentAge, mode);
+        const pageUrl = await generateImage(scene.description, 'page', currentAge, mode, fontId);
         const pageImage: GeneratedImage = {
           id: scene.id,
           url: pageUrl,
