@@ -5,13 +5,15 @@ import { BookData } from "../types";
 const FONT_URLS: Record<string, string> = {
   'chewy': 'https://raw.githubusercontent.com/google/fonts/main/ofl/chewy/Chewy-Regular.ttf',
   'patrick': 'https://raw.githubusercontent.com/google/fonts/main/ofl/patrickhand/PatrickHand-Regular.ttf',
-  'bangers': 'https://raw.githubusercontent.com/google/fonts/main/ofl/bangers/Bangers-Regular.ttf'
+  'bangers': 'https://raw.githubusercontent.com/google/fonts/main/ofl/bangers/Bangers-Regular.ttf',
+  'schoolbell': 'https://raw.githubusercontent.com/google/fonts/main/ofl/schoolbell/Schoolbell-Regular.ttf'
 };
 
 const FONT_NAMES: Record<string, string> = {
   'chewy': 'Chewy',
   'patrick': 'PatrickHand',
-  'bangers': 'Bangers'
+  'bangers': 'Bangers',
+  'schoolbell': 'Schoolbell'
 };
 
 // Helper to fetch font and convert to base64 using FileReader
@@ -101,6 +103,7 @@ export const generatePDF = async (bookData: BookData) => {
       if (activeFont === 'Bangers') titleFontSize = 42;
       if (activeFont === 'PatrickHand') titleFontSize = 40;
       if (activeFont === 'Chewy') titleFontSize = 40;
+      if (activeFont === 'Schoolbell') titleFontSize = 38;
 
       doc.setFontSize(titleFontSize);
       // Shrink to fit

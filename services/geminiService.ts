@@ -38,9 +38,35 @@ const generateTracePage = (description: string, fontId: string): string => {
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, width, height);
 
-  // Parse letters
-  const lettersPart = description.split(": ")[1] || "";
-  const letters = lettersPart.split(",").map(s => s.trim()).filter(l => l.length === 1);
+  // Parse letters - Robust Fallback
+  let letters: string[] = [];
+  
+  // Try standard format first "Handwriting practice for letters: A, B, C"
+  if (description.includes(":")) {
+    const part = description.split(":")[1];
+    letters = part.split(",").map(s => s.trim()).filter(l => l.length === 1 && /[A-Za-z]/.test(l));
+  }
+  
+  // Fallback: Extract distinct single uppercase letters if split failed
+  if (letters.length === 0) {
+     const matches = description.match(/\b[A-Z]\b/g);
+     if (matches) {
+        // Unique filter
+        letters = [...new Set(matches)];
+     }
+  }
+
+  // Last resort
+  if (letters.length === 0) {
+     // Check if it's a name practice
+     if (description.toLowerCase().includes("name:")) {
+        // Just take the first letter of the name if we can't do the whole name in this grid layout
+        // actually for name practice we might want to change behavior, but let's stick to simple
+        letters = ['A']; 
+     } else {
+        letters = ['A'];
+     }
+  }
 
   // Layout Constants
   const marginX = 100;
@@ -51,7 +77,9 @@ const generateTracePage = (description: string, fontId: string): string => {
     'helvetica': 'Nunito, sans-serif',
     'chewy': 'Chewy, cursive',
     'bangers': 'Bangers, cursive',
-    'patrick': '"Patrick Hand", cursive'
+    'patrick': '"Patrick Hand", cursive',
+    'schoolbell': 'Schoolbell, cursive',
+    'recursive': 'Recursive, sans-serif'
   };
   const headerFontFamily = fontMap[fontId] || 'Nunito, sans-serif';
 
@@ -63,11 +91,12 @@ const generateTracePage = (description: string, fontId: string): string => {
 
   // Dynamic sizing
   const availableHeight = height - currentY - 100;
-  const rowsNeeded = letters.length * 2;
+  // If we have just 1-2 letters, don't make them massively huge, cap the row height
+  const rowsNeeded = Math.max(letters.length * 2, 4); 
   const maxRowHeight = Math.floor(availableHeight / rowsNeeded);
   const rowHeight = Math.min(220, Math.max(120, maxRowHeight)); 
   const fontSize = Math.floor(rowHeight * 0.65); 
-  const font = `700 ${fontSize}px Nunito, sans-serif`; // Bold for "Thick" lines
+  const font = `700 ${fontSize}px ${headerFontFamily.split(',')[0]}, sans-serif`; // Use selected font for tracing too
 
   // 2. Draw Guides directly on background
   const drawGuides = (y: number) => {
@@ -105,8 +134,8 @@ const generateTracePage = (description: string, fontId: string): string => {
   const tCtx = textCanvas.getContext('2d');
   if (!tCtx) return canvas.toDataURL();
 
+  // IMPORTANT: Set font on tCtx before measuring!
   tCtx.font = font;
-  // Use a dark gray for the trace lines
   tCtx.fillStyle = "#4B5563"; // Gray 600
 
   // Draw all letters onto the text canvas (Solid)
@@ -115,21 +144,28 @@ const generateTracePage = (description: string, fontId: string): string => {
      const pair = `${letter}${letter.toLowerCase()}`;
      const pairWithSpace = `${pair}    `;
      
-     // Row 1
+     // CRITICAL FIX: Use tCtx to measure, not ctx (which has the small header font)
+     const pairWidth = tCtx.measureText(pair).width;
+     const spaceWidth = tCtx.measureText(pairWithSpace).width;
+
+     // Row 1: TRACING (Dashed)
      let row1BaseY = layoutY + (rowHeight * 0.75);
-     drawGuides(row1BaseY); // Draw guide on main ctx
+     drawGuides(row1BaseY); 
      
      let textX = marginX + 20;
-     while (textX + ctx.measureText(pair).width < width - marginX) {
+     while (textX + pairWidth < width - marginX) {
         tCtx.fillText(pair, textX, row1BaseY - (fontSize * 0.05));
-        textX += ctx.measureText(pairWithSpace).width;
+        textX += spaceWidth;
      }
      layoutY += rowHeight;
 
-     // Row 2
+     // Row 2: BLANK (Freehand practice)
      let row2BaseY = layoutY + (rowHeight * 0.75);
-     drawGuides(row2BaseY); // Draw guide on main ctx
+     drawGuides(row2BaseY); 
+     
+     // Add one pair to guide the kids
      tCtx.fillText(pair, marginX + 20, row2BaseY - (fontSize * 0.05));
+     
      layoutY += rowHeight;
   });
 
@@ -462,53 +498,54 @@ export const generateImage = async (
   let prompt = "";
   
   if (type === 'cover') {
-    prompt = `A vibrant, colorful, cheerful children's book cover illustration. 
+    prompt = `A masterpiece quality, high resolution children's book cover illustration. 
     Subject: ${description}. 
     Target Audience: Kids aged ${ageGroup}.
-    Style: Cute cartoon style, high quality, bright colors, inviting. 
+    Style: ${ageGroup === '9+' ? 'Detailed, sophisticated illustration' : 'Cute cartoon style'}, vibrant colors, professional digital art, 4k resolution, 8k quality.
     Do not include text.`;
   } else {
     // Tailor coloring page style to age
     let styleInstruction = "";
     switch (ageGroup) {
       case '1-3':
-        styleInstruction = "Very thick extra-bold lines. Extremely simple shapes. No background details. Large subject centered on page. Easy to color for toddlers.";
+        styleInstruction = "Extremely simple, thick bold vector lines. Single large subject. No background details. High contrast. 4k resolution, crisp edges.";
         break;
       case '3-5':
-        styleInstruction = "Thick bold lines. Simple cute characters. Minimal background. Clear distinct shapes. Easy to color.";
+        styleInstruction = "Bold, clean vector lines. Simple cute characters. Minimal background. High resolution, crisp edges.";
         break;
       case '5-8':
-        styleInstruction = "Standard coloring book line weight. Moderate detail. Fun scenes with some background elements. Clean lines.";
+        styleInstruction = "Standard coloring book line weight. Moderate detail and action. Engaging background elements. Professional line art, high resolution.";
         break;
       case '9+':
-        styleInstruction = "Finer lines. Detailed and intricate patterns (like a mandala or detailed scene). complex background. Engaging for older kids.";
+        styleInstruction = "Fine, intricate line art. Highly detailed, professional coloring book style. Complex patterns (zentangle or mandala elements where appropriate). Detailed backgrounds and textures. 4k high resolution, vector quality.";
         break;
       default:
-        styleInstruction = "Thick distinct black lines, pure white background.";
+        styleInstruction = "Thick distinct black lines, pure white background, high resolution.";
     }
+
+    const baseQuality = "Pure white background. High resolution 4k. Sharp, crisp vector-style lines. No grayscale, no shading, no artifacts.";
 
     if (mode === 'number') {
       // For Color by Number, we now generate a CLEAN standard image first, 
       // then programmatically add the numbers and legend.
       // So we ask for a high-contrast, simple closed-shape image.
-      prompt = `A clean, simple black and white coloring page.
+      prompt = `A clean, high-resolution black and white coloring page.
       Subject: ${description}.
       Style: ${styleInstruction}.
       IMPORTANT: Use closed lines and distinct segments. High contrast black ink on white.
-      NO shading, NO grayscale, NO gradients. Simple vector style line art.`;
+      ${baseQuality}`;
     } else if (mode === 'letter') {
-      prompt = `A black and white "color by letter" coloring page for children aged ${ageGroup}.
+      prompt = `A high-resolution black and white "color by letter" coloring page for children aged ${ageGroup}.
       Subject: ${description}.
       Style: ${styleInstruction}
       IMPORTANT: The image must be segmented into distinct regions. Inside each region, place a capital letter (e.g. A, B, C, D). 
       Include a simple Legend/Key at the bottom of the page (e.g. A=Yellow, B=Green).
-      Pure white background. Black line art. No shading, no grayscale, no filled colors.`;
+      ${baseQuality}`;
     } else {
-      prompt = `A black and white coloring book page for children aged ${ageGroup}. 
+      prompt = `A professional black and white coloring book page for children aged ${ageGroup}. 
       Subject: ${description}. 
       Style: ${styleInstruction}
-      Pure white background. No shading, no grayscale, no gradients, no colors. 
-      Vector art style, high contrast.`;
+      ${baseQuality}`;
     }
   }
 

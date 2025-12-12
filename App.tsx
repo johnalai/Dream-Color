@@ -25,7 +25,9 @@ import {
   Info,
   Printer,
   RotateCcw,
-  Lightbulb
+  Lightbulb,
+  Plus,
+  AlertTriangle
 } from 'lucide-react';
 
 const THEME_IDEAS = [
@@ -67,7 +69,9 @@ const FONTS = [
   { id: 'helvetica', label: 'Classic', family: 'Nunito, sans-serif' },
   { id: 'chewy', label: 'Playful', family: 'Chewy, cursive' },
   { id: 'bangers', label: 'Comic', family: 'Bangers, cursive' },
-  { id: 'patrick', label: 'Handwritten', family: 'Patrick Hand, cursive' }
+  { id: 'patrick', label: 'Handwritten', family: 'Patrick Hand, cursive' },
+  { id: 'schoolbell', label: 'Classroom', family: 'Schoolbell, cursive' },
+  { id: 'recursive', label: 'Modern', family: 'Recursive, sans-serif' }
 ];
 
 const COLORING_MODES: { id: ColoringMode; label: string; icon: React.ReactNode; desc: string; tooltip: string }[] = [
@@ -126,6 +130,10 @@ const App: React.FC = () => {
   const [isDownloading, setIsDownloading] = useState(false);
   const [hasSavedData, setHasSavedData] = useState(false);
   const [showAbout, setShowAbout] = useState(false);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+
+  // Generation Session Tracker to handle race conditions (Start Over)
+  const genSessionId = useRef(0);
 
   // Suggestions state
   const [isThemeFocused, setIsThemeFocused] = useState(false);
@@ -159,12 +167,9 @@ const App: React.FC = () => {
           setState(AppState.PREVIEW);
         } else if (data.state === AppState.GENERATING || data.state === AppState.PLANNING) {
           // If we were generating, go to input but enable "Resume"
-          // Or if we have data, we can stay in INPUT but show resume options
-          // If scenes are generated but images are missing, we are "Paused"
           if (data.bookData?.scenes?.length > 0 && data.bookData?.images?.length < data.bookData?.scenes?.length + 1) {
              setHasSavedData(true);
              setStatusMessage("Previous session found.");
-             // We stay in INPUT but the form will adapt
           }
         }
       }
@@ -194,7 +199,6 @@ const App: React.FC = () => {
         }
       } catch (e) {
         console.warn("Storage quota exceeded or error saving", e);
-        // We could show a toast here, but console warn is enough for now
       }
     }, 1000); // Debounce save
 
@@ -225,6 +229,10 @@ const App: React.FC = () => {
     e.preventDefault();
     if (!theme || !childName) return;
 
+    // Start a new generation session
+    genSessionId.current += 1;
+    const currentSessionId = genSessionId.current;
+
     // Check if we are resuming
     const isResuming = bookData.scenes.length > 0 && bookData.theme === theme && bookData.childName === childName;
     
@@ -237,9 +245,11 @@ const App: React.FC = () => {
       // Only generate scenes if we aren't resuming or don't have them
       if (!isResuming || scenesToUse.length === 0) {
         setStatusMessage("Dreaming up the story...");
-        // Updated call: added coloringMode as 4th argument
         scenesToUse = await generateScenes(theme, pageCount, ageGroup, coloringMode);
         
+        // Abort if reset happened
+        if (genSessionId.current !== currentSessionId) return;
+
         setBookData(prev => ({ 
           ...prev, 
           theme, 
@@ -259,12 +269,78 @@ const App: React.FC = () => {
       
       // Pass existing images if resuming
       const currentImages = isResuming ? bookData.images : [];
-      await generateBookImages(scenesToUse, theme, ageGroup, coloringMode, currentImages, selectedFont);
+      await generateBookImages(scenesToUse, theme, ageGroup, coloringMode, currentImages, selectedFont, currentSessionId);
       
     } catch (err) {
-      console.error(err);
-      setError("Something went wrong while dreaming up the book. Please try again!");
-      setState(AppState.ERROR);
+      if (genSessionId.current === currentSessionId) {
+        console.error(err);
+        setError("Something went wrong while dreaming up the book. Please try again!");
+        setState(AppState.ERROR);
+      }
+    }
+  };
+
+  const handleAddPage = async () => {
+    // Start a new sub-session for this action
+    genSessionId.current += 1;
+    const currentSessionId = genSessionId.current;
+
+    // Keep user in a 'loading' visual state while maintaining context
+    setState(AppState.GENERATING);
+    setStatusMessage("Designing an extra page...");
+    // Artificial progress for the single page
+    setProgress(85);
+
+    try {
+       let newScene: Scene;
+
+       if (coloringMode === 'trace') {
+          // For trace mode, generate a practice page using the child's name
+          newScene = {
+             id: `scene-extra-${Date.now()}`,
+             description: `Handwriting practice for name: ${childName}`
+          };
+       } else {
+          // Generate 1 new scene based on theme
+          const newScenes = await generateScenes(theme, 1, ageGroup, coloringMode);
+          if (!newScenes || newScenes.length === 0) throw new Error("No scene generated");
+          newScene = {
+            ...newScenes[0],
+            id: `scene-extra-${Date.now()}` // Ensure unique ID
+          };
+       }
+
+       if (genSessionId.current !== currentSessionId) return;
+
+       // Generate Image
+       const imageUrl = await generateImage(newScene.description, 'page', ageGroup, coloringMode, selectedFont);
+       
+       if (genSessionId.current !== currentSessionId) return;
+
+       const newImage: GeneratedImage = {
+          id: newScene.id,
+          url: imageUrl,
+          description: newScene.description,
+          type: 'page'
+       };
+
+       // Update Data
+       setBookData(prev => ({
+          ...prev,
+          scenes: [...prev.scenes, newScene],
+          images: [...prev.images, newImage]
+       }));
+
+       setState(AppState.PREVIEW);
+       setStatusMessage("");
+       setProgress(0);
+
+    } catch (e) {
+       console.error(e);
+       if (genSessionId.current === currentSessionId) {
+         setError("Could not add a new page. Please try again.");
+         setState(AppState.PREVIEW); // Return to preview on failure
+       }
     }
   };
 
@@ -274,7 +350,8 @@ const App: React.FC = () => {
     currentAge: string, 
     mode: ColoringMode,
     existingImages: GeneratedImage[],
-    fontId: string
+    fontId: string,
+    sessionId: number
   ) => {
     const totalSteps = scenes.length + 1; // +1 for cover
     
@@ -283,7 +360,6 @@ const App: React.FC = () => {
     setProgress(Math.round((completedCount / totalSteps) * 100));
 
     const updateProgress = (msg: string) => {
-      // Intentionally not incrementing here, we increment after success logic
       setStatusMessage(msg);
     };
 
@@ -292,8 +368,11 @@ const App: React.FC = () => {
       const hasCover = existingImages.some(img => img.type === 'cover');
       
       if (!hasCover) {
+        if (genSessionId.current !== sessionId) return; // ABORT Check
         setStatusMessage("Designing the cover...");
         const coverUrl = await generateImage(currentTheme, 'cover', currentAge, mode, fontId);
+        
+        if (genSessionId.current !== sessionId) return; // ABORT Check
         
         const coverImage: GeneratedImage = {
           id: 'cover',
@@ -302,11 +381,8 @@ const App: React.FC = () => {
           type: 'cover'
         };
         
-        // Update state incrementally to allow saving progress
-        setBookData(prev => {
-          const updated = { ...prev, images: [...prev.images, coverImage] };
-          return updated;
-        });
+        // Update state incrementally
+        setBookData(prev => ({ ...prev, images: [...prev.images, coverImage] }));
         
         completedCount++;
         setProgress(Math.round((completedCount / totalSteps) * 100));
@@ -315,13 +391,12 @@ const App: React.FC = () => {
 
       // 2. Generate Pages (skip existing)
       for (let i = 0; i < scenes.length; i++) {
+        if (genSessionId.current !== sessionId) return; // ABORT Check
+
         const scene = scenes[i];
-        const hasPage = existingImages.some(img => img.id === scene.id); // Check passed arg
-        // Also check current state (via ref or just re-checking state would be complex in loop)
-        // We rely on the fact that existingImages was accurate at start, and we are running sequentially.
+        const hasPage = existingImages.some(img => img.id === scene.id);
         
         if (hasPage) {
-           // update progress visual just in case
            updateProgress(`Checking page ${i + 1}...`);
            continue;
         }
@@ -329,6 +404,9 @@ const App: React.FC = () => {
         setStatusMessage(`Drawing page ${i + 1} of ${scenes.length}: ${scene.description.substring(0, 30)}...`);
         
         const pageUrl = await generateImage(scene.description, 'page', currentAge, mode, fontId);
+        
+        if (genSessionId.current !== sessionId) return; // ABORT Check
+
         const pageImage: GeneratedImage = {
           id: scene.id,
           url: pageUrl,
@@ -344,15 +422,18 @@ const App: React.FC = () => {
       }
       
       updateProgress("Finishing touches...");
-      // Small delay to let user see 100%
       await new Promise(r => setTimeout(r, 500));
 
-      setState(AppState.PREVIEW);
+      if (genSessionId.current === sessionId) {
+         setState(AppState.PREVIEW);
+      }
 
     } catch (err) {
-      console.error(err);
-      setError("We couldn't finish drawing all the pages. Please try again.");
-      setState(AppState.ERROR);
+      if (genSessionId.current === sessionId) {
+        console.error(err);
+        setError("We couldn't finish drawing all the pages. Please try again.");
+        setState(AppState.ERROR);
+      }
     }
   };
 
@@ -380,7 +461,9 @@ const App: React.FC = () => {
       'helvetica': 'Nunito, sans-serif',
       'chewy': 'Chewy, cursive',
       'bangers': 'Bangers, cursive',
-      'patrick': 'Patrick Hand, cursive'
+      'patrick': 'Patrick Hand, cursive',
+      'schoolbell': 'Schoolbell, cursive',
+      'recursive': 'Recursive, sans-serif'
     };
     const titleFontFamily = fontMap[bookData.fontId] || 'Nunito, sans-serif';
 
@@ -500,7 +583,7 @@ const App: React.FC = () => {
               box-sizing: border-box;
             }
           </style>
-          <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&family=Bangers&family=Chewy&family=Patrick+Hand&display=swap" rel="stylesheet">
+          <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&family=Bangers&family=Chewy&family=Patrick+Hand&family=Schoolbell&family=Recursive:wght,CASL@400..800,1&display=swap" rel="stylesheet">
         </head>
         <body>
           ${bookData.images.map((img, i) => {
@@ -544,26 +627,43 @@ const App: React.FC = () => {
     printWindow.document.close();
   };
 
-  const handleReset = () => {
-    if (confirm("Are you sure? This will clear your current book and progress.")) {
-      clearSave();
-      setState(AppState.INPUT);
-      setTheme('');
-      setChildName('');
-      setPageCount(5);
-      // setAgeGroup('3-5'); // Keep preferences
-      setBookData({ 
-        theme: '', 
-        childName: '', 
-        ageGroup: '', 
-        fontId: selectedFont, 
-        coloringMode: coloringMode,
-        scenes: [], 
-        images: [] 
-      });
-      setProgress(0);
-      setError(null);
-    }
+  const handleDownloadImage = (url: string, filename: string) => {
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename.replace(/\s+/g, '-').toLowerCase();
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const triggerReset = () => {
+    setShowResetConfirm(true);
+  };
+
+  const performReset = () => {
+    // Invalidate any active session
+    genSessionId.current += 1;
+    
+    clearSave();
+    setState(AppState.INPUT);
+    setTheme('');
+    setChildName('');
+    setPageCount(5);
+    setAgeGroup('3-5'); // Reset to default
+    setSelectedFont('chewy'); // Reset to default
+    setColoringMode('standard'); // Reset to default
+    setBookData({ 
+      theme: '', 
+      childName: '', 
+      ageGroup: '', 
+      fontId: '', 
+      coloringMode: 'standard', 
+      scenes: [], 
+      images: [] 
+    });
+    setProgress(0);
+    setError(null);
+    setShowResetConfirm(false);
   };
 
   const isResumable = bookData.scenes.length > 0 && bookData.theme === theme;
@@ -589,7 +689,7 @@ const App: React.FC = () => {
 
       {/* About Modal */}
       {showAbout && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-fadeIn" onClick={() => setShowAbout(false)}>
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-fadeIn" onClick={() => setShowAbout(false)}>
           <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 md:p-8 relative" onClick={e => e.stopPropagation()}>
             <button 
               onClick={() => setShowAbout(false)}
@@ -625,13 +725,46 @@ const App: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Reset Confirmation Modal */}
+      {showResetConfirm && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fadeIn" onClick={() => setShowResetConfirm(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 relative border-2 border-slate-100" onClick={e => e.stopPropagation()}>
+            <div className="text-center">
+               <div className="bg-amber-100 p-3 rounded-full inline-flex mb-4 text-amber-600">
+                  <AlertTriangle className="w-8 h-8" />
+               </div>
+               <h3 className="text-xl font-bold text-dark mb-2">Start Over?</h3>
+               <p className="text-slate-600 mb-6">
+                 This will clear your current book and progress. Are you sure you want to create a new one?
+               </p>
+               
+               <div className="flex gap-3">
+                 <Button 
+                   variant="outline" 
+                   onClick={() => setShowResetConfirm(false)}
+                   className="flex-1"
+                 >
+                   Cancel
+                 </Button>
+                 <Button 
+                   onClick={performReset}
+                   className="flex-1 bg-red-500 hover:bg-red-600 shadow-red-200"
+                 >
+                   Yes, Reset
+                 </Button>
+               </div>
+            </div>
+          </div>
+        </div>
+      )}
       
       {/* START OVER BUTTON (Reset) */}
       {state !== AppState.INPUT && (
-        <div className="absolute top-4 right-4 md:top-6 md:right-6 z-20">
+        <div className="absolute top-4 right-4 md:top-6 md:right-6 z-50">
            <Button 
              variant="outline" 
-             onClick={handleReset} 
+             onClick={triggerReset} 
              className="bg-white/80 backdrop-blur-sm shadow-sm hover:bg-white text-xs md:text-sm py-2 px-3 rounded-xl border-slate-200"
            >
              <RotateCcw className="w-4 h-4 mr-2" /> Start Over
@@ -1007,7 +1140,15 @@ const App: React.FC = () => {
                     </div>
                   </div>
                   <div className="flex gap-4 mt-6 md:mt-0 w-full md:w-auto">
-                    {/* Replaced 'New Book' with 'Start Over' at top right, so just Download/Print here */}
+                    {/* Add Page Button */}
+                    <Button
+                      onClick={handleAddPage}
+                      variant="outline"
+                      className="flex-1 md:flex-none border-primary text-primary hover:bg-primary/5"
+                    >
+                       <Plus className="w-4 h-4 mr-2" /> Add Page
+                    </Button>
+
                     <Button 
                       onClick={handlePrint}
                       className="flex-1 md:flex-none bg-primary hover:bg-indigo-600 shadow-lg shadow-primary/20"
@@ -1030,9 +1171,23 @@ const App: React.FC = () => {
                   {bookData.images.filter(img => img.type === 'cover').map((img) => (
                     <div key={img.id} className="group relative aspect-[3/4] bg-white rounded-2xl shadow-lg overflow-hidden ring-4 ring-offset-4 ring-primary/20 hover:ring-primary/40 hover:shadow-2xl hover:shadow-primary/10 transition-all duration-300">
                       <img src={img.url} alt="Cover" className="w-full h-full object-cover" />
-                      <div className="absolute inset-0 bg-gradient-to-t from-dark/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-end p-6">
+                      
+                      {/* Gradient Overlay */}
+                      <div className="absolute inset-0 bg-gradient-to-t from-dark/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-end p-6 pointer-events-none">
                          <span className="inline-block self-start px-3 py-1 bg-white/20 backdrop-blur-md text-white text-xs font-bold rounded-full mb-2 border border-white/30">BOOK COVER</span>
                       </div>
+                      
+                      {/* Download Button */}
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDownloadImage(img.url, `${bookData.childName}-${bookData.theme}-cover.png`);
+                        }}
+                        className="absolute top-4 right-4 p-2.5 bg-white/20 backdrop-blur-md border border-white/50 rounded-full text-white hover:bg-white hover:text-primary transition-all shadow-lg opacity-0 group-hover:opacity-100 transform translate-y-[-10px] group-hover:translate-y-0 z-20"
+                        title="Download Cover Image (PNG)"
+                      >
+                        <Download className="w-5 h-5" />
+                      </button>
                     </div>
                   ))}
 
@@ -1042,6 +1197,19 @@ const App: React.FC = () => {
                       <div className="absolute inset-0 p-6 flex items-center justify-center bg-white">
                         <img src={img.url} alt={`Page ${idx + 1}`} className="max-w-full max-h-full object-contain filter contrast-125" />
                       </div>
+                      
+                      {/* Download Button */}
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDownloadImage(img.url, `${bookData.childName}-${bookData.theme}-page-${idx+1}.png`);
+                        }}
+                        className="absolute top-4 right-4 p-2.5 bg-white border border-slate-100 rounded-full text-slate-400 hover:text-secondary hover:border-secondary transition-all shadow-sm hover:shadow-md opacity-0 group-hover:opacity-100 transform translate-y-[-10px] group-hover:translate-y-0 z-20"
+                        title="Download Page Image (PNG)"
+                      >
+                        <Download className="w-5 h-5" />
+                      </button>
+
                       <div className="absolute bottom-0 left-0 right-0 bg-white/95 backdrop-blur-sm p-4 border-t border-slate-100 opacity-0 group-hover:opacity-100 transition-all transform translate-y-2 group-hover:translate-y-0">
                          <div className="flex justify-between items-center mb-1">
                            <span className="text-xs font-bold text-secondary uppercase tracking-wider bg-secondary/10 px-2 py-0.5 rounded-full">Page {idx + 1}</span>
@@ -1066,7 +1234,7 @@ const App: React.FC = () => {
                <p className="text-xl text-slate-600 mb-8 max-w-md mx-auto">
                  {error || "Something unexpected happened."}
                </p>
-               <Button onClick={handleReset} variant="secondary">
+               <Button onClick={triggerReset} variant="secondary">
                  Try Again
                </Button>
              </div>
