@@ -20,7 +20,12 @@ import {
   Save,
   Trash2,
   Play,
-  PencilLine
+  PencilLine,
+  X,
+  Info,
+  Printer,
+  RotateCcw,
+  Lightbulb
 } from 'lucide-react';
 
 const THEME_IDEAS = [
@@ -65,11 +70,35 @@ const FONTS = [
   { id: 'patrick', label: 'Handwritten', family: 'Patrick Hand, cursive' }
 ];
 
-const COLORING_MODES: { id: ColoringMode; label: string; icon: React.ReactNode; desc: string }[] = [
-  { id: 'standard', label: 'Standard', icon: <ImageIcon className="w-5 h-5" />, desc: 'Classic outlines' },
-  { id: 'number', label: 'By Number', icon: <Hash className="w-5 h-5" />, desc: 'Segments with numbers' },
-  { id: 'letter', label: 'By Letter', icon: <Type className="w-5 h-5" />, desc: 'Segments with letters' },
-  { id: 'trace', label: 'Trace Letters', icon: <PencilLine className="w-5 h-5" />, desc: 'Alphabet practice' },
+const COLORING_MODES: { id: ColoringMode; label: string; icon: React.ReactNode; desc: string; tooltip: string }[] = [
+  { 
+    id: 'standard', 
+    label: 'Standard', 
+    icon: <ImageIcon className="w-5 h-5" />, 
+    desc: 'Classic outlines',
+    tooltip: 'Beautiful, clean line art scenes perfect for crayons and markers.'
+  },
+  { 
+    id: 'number', 
+    label: 'By Number', 
+    icon: <Hash className="w-5 h-5" />, 
+    desc: 'Segments with numbers',
+    tooltip: 'Number-coded regions (1-5) with a color key at the bottom.'
+  },
+  { 
+    id: 'letter', 
+    label: 'By Letter', 
+    icon: <Type className="w-5 h-5" />, 
+    desc: 'Segments with letters',
+    tooltip: 'Letter-coded regions (A-E) to practice alphabet recognition.'
+  },
+  { 
+    id: 'trace', 
+    label: 'Trace Letters', 
+    icon: <PencilLine className="w-5 h-5" />, 
+    desc: 'Alphabet practice',
+    tooltip: 'Handwriting worksheets for practicing letter formation.'
+  },
 ];
 
 const STORAGE_KEY = 'dreamcolor_save_v1';
@@ -96,6 +125,11 @@ const App: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
   const [hasSavedData, setHasSavedData] = useState(false);
+  const [showAbout, setShowAbout] = useState(false);
+
+  // Suggestions state
+  const [isThemeFocused, setIsThemeFocused] = useState(false);
+  const [suggestedThemes, setSuggestedThemes] = useState<string[]>([]);
 
   // Background decoration blobs
   const blobs = [
@@ -166,6 +200,21 @@ const App: React.FC = () => {
 
     return () => clearTimeout(timeoutId);
   }, [state, theme, childName, pageCount, ageGroup, selectedFont, coloringMode, bookData]);
+
+  // Suggestion Rotation Logic
+  useEffect(() => {
+    if (isThemeFocused) {
+      const shuffle = () => {
+        // Pick 3 random
+        const shuffled = [...THEME_IDEAS].sort(() => 0.5 - Math.random());
+        setSuggestedThemes(shuffled.slice(0, 3));
+      };
+      
+      shuffle(); // Initial shuffle
+      const interval = setInterval(shuffle, 3500); // Rotate every 3.5s
+      return () => clearInterval(interval);
+    }
+  }, [isThemeFocused]);
 
   const clearSave = () => {
     localStorage.removeItem(STORAGE_KEY);
@@ -319,6 +368,182 @@ const App: React.FC = () => {
     }
   };
 
+  const handlePrint = () => {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      alert("Please allow popups to print.");
+      return;
+    }
+
+    // Determine font family
+    const fontMap: Record<string, string> = {
+      'helvetica': 'Nunito, sans-serif',
+      'chewy': 'Chewy, cursive',
+      'bangers': 'Bangers, cursive',
+      'patrick': 'Patrick Hand, cursive'
+    };
+    const titleFontFamily = fontMap[bookData.fontId] || 'Nunito, sans-serif';
+
+    // Heuristics for Title Size (Dynamic)
+    const titleLen = bookData.theme.length;
+    let titleFontSize = '48px';
+    if (titleLen > 15) titleFontSize = '36px';
+    if (titleLen > 25) titleFontSize = '28px';
+
+    // Heuristics for Name Size
+    const nameLen = bookData.childName.length;
+    let nameFontSize = '24px';
+    if (nameLen > 15) nameFontSize = '20px';
+    if (nameLen > 25) nameFontSize = '16px';
+
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>DreamColor - ${bookData.theme}</title>
+          <style>
+            @page { size: A4 portrait; margin: 0; }
+            body { margin: 0; padding: 0; font-family: 'Nunito', sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; background: #eee; }
+            .page-wrapper {
+              display: flex;
+              justify-content: center;
+              padding: 20px 0;
+            }
+            .page { 
+              width: 210mm; 
+              height: 296mm; 
+              position: relative; 
+              page-break-after: always; 
+              display: flex;
+              flex-direction: column;
+              align-items: center;
+              justify-content: center;
+              overflow: hidden;
+              background: white;
+              box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            }
+            @media print {
+              body { background: white; }
+              .page-wrapper { padding: 0; display: block; }
+              .page { box-shadow: none; width: 100%; height: 100%; page-break-after: always; }
+            }
+            .page:last-child { page-break-after: auto; }
+            
+            .cover-container {
+              position: relative;
+              width: 100%;
+              height: 100%;
+              display: flex;
+              align-items: flex-end; /* Changed from center to flex-end */
+              justify-content: center;
+              overflow: hidden;
+              padding-bottom: 40px; /* Added spacing for bottom alignment */
+              box-sizing: border-box;
+            }
+            .cover-bg {
+              position: absolute;
+              top: 0; left: 0; width: 100%; height: 100%;
+              object-fit: cover;
+              z-index: 0;
+            }
+            .cover-overlay {
+              position: relative;
+              z-index: 10;
+              background: transparent;
+              padding: 40px;
+              text-align: center;
+              width: 80%;
+              display: flex;
+              flex-direction: column;
+              gap: 10px;
+            }
+            .cover-title { 
+              font-family: ${titleFontFamily};
+              font-size: ${titleFontSize}; 
+              font-weight: 800; 
+              color: #1E293B; 
+              margin: 0; 
+              line-height: 1.1; 
+              text-transform: uppercase; 
+              text-shadow: 2px 2px 0 #fff, -1px -1px 0 #fff, 1px -1px 0 #fff, -1px 1px 0 #fff, 1px 1px 0 #fff;
+            }
+            .cover-subtitle { 
+              font-size: 32px; 
+              color: #EC4899; 
+              margin: 0; 
+              font-weight: 700; 
+              font-family: 'Nunito', sans-serif;
+              text-shadow: 2px 2px 0 #fff, -1px -1px 0 #fff, 1px -1px 0 #fff, -1px 1px 0 #fff, 1px 1px 0 #fff;
+            }
+            .cover-artist { 
+              font-size: ${nameFontSize}; 
+              color: #6366F1; 
+              margin-top: 10px; 
+              font-weight: 600; 
+              font-family: 'Nunito', sans-serif;
+              text-shadow: 2px 2px 0 #fff, -1px -1px 0 #fff, 1px -1px 0 #fff, -1px 1px 0 #fff, 1px 1px 0 #fff;
+            }
+
+            .coloring-page-img {
+              max-width: 90%;
+              max-height: 90%;
+              object-fit: contain;
+            }
+            .page-footer {
+              position: absolute;
+              bottom: 20px;
+              font-size: 14px;
+              color: #94A3B8;
+              text-align: right; /* Changed from center to right */
+              width: 100%;
+              padding-right: 40px; /* Added padding to ensure it's not on the edge */
+              box-sizing: border-box;
+            }
+          </style>
+          <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&family=Bangers&family=Chewy&family=Patrick+Hand&display=swap" rel="stylesheet">
+        </head>
+        <body>
+          ${bookData.images.map((img, i) => {
+            if (img.type === 'cover') {
+              return `
+                <div class="page-wrapper">
+                  <div class="page">
+                    <div class="cover-container">
+                      <img src="${img.url}" class="cover-bg" />
+                      <div class="cover-overlay">
+                        <h1 class="cover-title">${bookData.theme}</h1>
+                        <h2 class="cover-subtitle">Coloring Book</h2>
+                        <div class="cover-artist">Created for ${bookData.childName}</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              `;
+            } else {
+              return `
+                <div class="page-wrapper">
+                  <div class="page">
+                    <img src="${img.url}" class="coloring-page-img" />
+                    <div class="page-footer">${i}</div>
+                  </div>
+                </div>
+              `;
+            }
+          }).join('')}
+          <script>
+            window.onload = function() {
+              setTimeout(function() {
+                window.print();
+              }, 1000);
+            }
+          </script>
+        </body>
+      </html>
+    `;
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+  };
+
   const handleReset = () => {
     if (confirm("Are you sure? This will clear your current book and progress.")) {
       clearSave();
@@ -361,6 +586,58 @@ const App: React.FC = () => {
           }}
         />
       ))}
+
+      {/* About Modal */}
+      {showAbout && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-fadeIn" onClick={() => setShowAbout(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 md:p-8 relative" onClick={e => e.stopPropagation()}>
+            <button 
+              onClick={() => setShowAbout(false)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 transition-colors"
+            >
+              <X className="w-6 h-6" />
+            </button>
+            
+            <div className="text-center mb-6">
+               <div className="bg-primary/10 p-3 rounded-xl inline-flex mb-4">
+                  <Palette className="w-8 h-8 text-primary" />
+               </div>
+               <h2 className="text-2xl font-display font-bold text-dark">About DreamColor</h2>
+            </div>
+            
+            <div className="space-y-4 text-slate-600 leading-relaxed text-sm md:text-base">
+              <p>
+                Welcome to <strong className="text-primary">DreamColor</strong>! We believe every child deserves a coloring book where they are the star.
+              </p>
+              <p>
+                This application harnesses the power of <strong className="text-secondary">Google's Gemini AI</strong> to instantly imagine and draw unique coloring pages based on your specific themes and interests.
+              </p>
+              <p>
+                Whether it's "Space Dinosaurs" or "Underwater Unicorns", our AI generates safe, age-appropriate line art specifically designed for your child's age group.
+              </p>
+            </div>
+
+            <div className="mt-8 text-center">
+              <Button onClick={() => setShowAbout(false)} className="w-full">
+                Got it!
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* START OVER BUTTON (Reset) */}
+      {state !== AppState.INPUT && (
+        <div className="absolute top-4 right-4 md:top-6 md:right-6 z-20">
+           <Button 
+             variant="outline" 
+             onClick={handleReset} 
+             className="bg-white/80 backdrop-blur-sm shadow-sm hover:bg-white text-xs md:text-sm py-2 px-3 rounded-xl border-slate-200"
+           >
+             <RotateCcw className="w-4 h-4 mr-2" /> Start Over
+           </Button>
+        </div>
+      )}
 
       <div className="relative z-10 container mx-auto px-4 py-8 md:py-16 max-w-5xl">
         {/* Header */}
@@ -447,16 +724,39 @@ const App: React.FC = () => {
                       list="theme-ideas"
                       value={theme}
                       onChange={(e) => setTheme(e.target.value)}
+                      onFocus={() => setIsThemeFocused(true)}
+                      onBlur={() => setTimeout(() => setIsThemeFocused(false), 200)}
                       placeholder="Choose an idea or type your own!"
-                      className="w-full px-6 py-5 rounded-2xl bg-white border-2 border-slate-100 focus:border-primary focus:ring-4 focus:ring-primary/20 outline-none text-xl transition-all shadow-sm group-hover:border-slate-200"
+                      className="w-full px-6 py-5 rounded-2xl bg-white border-2 border-slate-100 focus:border-primary focus:ring-4 focus:ring-primary/20 outline-none text-xl transition-all shadow-sm group-hover:border-slate-200 z-10 relative"
                       required
                     />
+                    {/* Rotating Suggestions Carousel */}
+                    <div className={`absolute top-full left-0 right-0 mt-3 p-4 bg-white rounded-2xl shadow-xl shadow-indigo-100 border border-indigo-50 z-20 transition-all duration-300 transform origin-top ${isThemeFocused ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 -translate-y-2 scale-95 pointer-events-none'}`}>
+                       <div className="flex items-center gap-2 mb-3 text-xs font-bold text-slate-400 uppercase tracking-wider">
+                         <Lightbulb className="w-3 h-3 text-accent" />
+                         Inspiration Station
+                       </div>
+                       <div className="flex flex-wrap gap-2">
+                         {suggestedThemes.map((s, idx) => (
+                           <button
+                             key={`${s}-${idx}`}
+                             type="button"
+                             onClick={() => setTheme(s)}
+                             className="text-sm px-3 py-1.5 bg-indigo-50 text-indigo-700 rounded-lg hover:bg-indigo-100 hover:scale-105 transition-all duration-200 animate-fadeIn"
+                             style={{ animationDelay: `${idx * 100}ms` }}
+                           >
+                             {s}
+                           </button>
+                         ))}
+                       </div>
+                    </div>
+                    
                     <datalist id="theme-ideas">
                       {THEME_IDEAS.map((idea) => (
                         <option key={idea} value={idea} />
                       ))}
                     </datalist>
-                    <div className="absolute right-4 top-1/2 -translate-y-1/2 text-primary pointer-events-none animate-pulse">
+                    <div className="absolute right-4 top-1/2 -translate-y-1/2 text-primary pointer-events-none animate-pulse z-30">
                       <Sparkles className="w-6 h-6" />
                     </div>
                   </div>
@@ -501,13 +801,28 @@ const App: React.FC = () => {
                       <button
                         key={mode.id}
                         type="button"
-                        onClick={() => setColoringMode(mode.id)}
-                        className={`p-3 rounded-xl border-2 transition-all duration-200 flex flex-col items-center justify-center text-center relative ${
+                        onClick={() => {
+                          setColoringMode(mode.id);
+                          // Default page count logic
+                          if (mode.id === 'trace') {
+                            setPageCount(10);
+                          } else {
+                            setPageCount(5);
+                          }
+                        }}
+                        className={`group p-3 rounded-xl border-2 transition-all duration-200 flex flex-col items-center justify-center text-center relative ${
                           coloringMode === mode.id
                             ? 'border-accent bg-accent/5 ring-1 ring-accent'
                             : 'border-slate-100 bg-white hover:border-slate-200'
                         }`}
                       >
+                         {/* Tooltip */}
+                         <div className="absolute bottom-full mb-2 w-48 p-2 bg-slate-800 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20 shadow-lg">
+                           {mode.tooltip}
+                           {/* Arrow */}
+                           <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-800"></div>
+                         </div>
+
                          <div className={`mb-2 p-2 rounded-full ${coloringMode === mode.id ? 'bg-accent text-white' : 'bg-slate-100 text-slate-500'}`}>
                            {mode.icon}
                          </div>
@@ -535,23 +850,23 @@ const App: React.FC = () => {
                         key={font.id}
                         type="button"
                         onClick={() => setSelectedFont(font.id)}
-                        className={`p-3 rounded-xl border-2 transition-all duration-200 relative ${
+                        className={`group p-4 rounded-2xl border-2 transition-all duration-300 relative flex flex-col items-center justify-center gap-2 h-32 ${
                           selectedFont === font.id
-                            ? 'border-primary bg-primary/5 ring-1 ring-primary'
-                            : 'border-slate-100 bg-white hover:border-slate-200'
+                            ? 'border-primary bg-primary/5 ring-1 ring-primary shadow-sm'
+                            : 'border-slate-100 bg-white hover:border-slate-300 hover:shadow-md'
                         }`}
                       >
-                        <div 
-                          className="text-2xl mb-1 text-center text-dark"
+                        <span 
+                          className="text-4xl text-dark transition-transform duration-300 group-hover:scale-110"
                           style={{ fontFamily: font.family }}
                         >
-                          {childName || "Leo"}
-                        </div>
-                        <div className="text-xs text-center text-slate-500 font-sans font-medium">
+                          {childName ? (childName.length > 10 ? "Aa" : childName) : "Aa"}
+                        </span>
+                        <span className="text-xs text-slate-400 font-sans font-bold tracking-wider uppercase">
                           {font.label}
-                        </div>
+                        </span>
                         {selectedFont === font.id && (
-                          <div className="absolute top-2 right-2 text-primary">
+                          <div className="absolute top-2 right-2 text-primary bg-white rounded-full p-0.5 shadow-sm">
                             <CheckCircle2 className="w-4 h-4" />
                           </div>
                         )}
@@ -568,6 +883,16 @@ const App: React.FC = () => {
                          <Layers className="w-5 h-5 text-secondary" />
                       </div>
                       How many coloring pages?
+                      
+                      {/* Tooltip added here */}
+                      <div className="group relative ml-2">
+                        <Info className="w-5 h-5 text-slate-400 cursor-help" />
+                        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 p-3 bg-slate-800 text-white text-xs font-normal rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20 shadow-lg text-center">
+                          More pages take longer to create (approx. 5-10s per page).
+                          <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-800"></div>
+                        </div>
+                      </div>
+
                     </div>
                     <span className="font-display font-bold text-3xl text-primary">
                       {pageCount}
@@ -682,8 +1007,12 @@ const App: React.FC = () => {
                     </div>
                   </div>
                   <div className="flex gap-4 mt-6 md:mt-0 w-full md:w-auto">
-                    <Button variant="outline" onClick={handleReset} className="flex-1 md:flex-none">
-                       <RefreshCcw className="w-4 h-4 mr-2" /> New Book
+                    {/* Replaced 'New Book' with 'Start Over' at top right, so just Download/Print here */}
+                    <Button 
+                      onClick={handlePrint}
+                      className="flex-1 md:flex-none bg-primary hover:bg-indigo-600 shadow-lg shadow-primary/20"
+                    >
+                      <Printer className="w-4 h-4 mr-2" /> Print All
                     </Button>
                     <Button 
                       onClick={handleDownload} 
@@ -691,7 +1020,7 @@ const App: React.FC = () => {
                       isLoading={isDownloading}
                       disabled={isDownloading}
                     >
-                       <Download className="w-4 h-4 mr-2" /> {isDownloading ? "Generating PDF..." : "Download PDF"}
+                       <Download className="w-4 h-4 mr-2" /> {isDownloading ? "Generating..." : "Download PDF"}
                     </Button>
                   </div>
                </div>
@@ -745,10 +1074,16 @@ const App: React.FC = () => {
 
         </main>
 
-        <footer className="text-center mt-12 text-slate-500 text-sm font-medium">
-          <p className="flex items-center justify-center gap-2 opacity-70 hover:opacity-100 transition-opacity">
+        <footer className="text-center mt-12 text-slate-500 text-sm font-medium pb-8">
+          <p className="flex items-center justify-center gap-2 opacity-70 mb-4">
             Made with <span className="text-secondary animate-pulse">♥</span> using Gemini AI
           </p>
+          <button 
+            onClick={() => setShowAbout(true)}
+            className="text-slate-400 hover:text-primary transition-colors underline underline-offset-4"
+          >
+            About DreamColor
+          </button>
         </footer>
       </div>
     </div>

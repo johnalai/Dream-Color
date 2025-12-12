@@ -81,30 +81,96 @@ export const generatePDF = async (bookData: BookData) => {
     if (coverImage) {
       doc.addImage(coverImage.url, "PNG", 0, 0, width, height, undefined, "FAST");
       
-      // Title Box
-      doc.setFillColor(255, 255, 255);
-      doc.roundedRect(margin, height / 2 - 40, width - (margin * 2), 80, 5, 5, 'F');
+      // -- Cover Layout Logic --
+      const boxHeight = 90; 
+      // Position at bottom with some padding
+      const boxY = height - boxHeight - 10;
+      const boxWidth = width - (margin * 2);
+      const centerX = width / 2;
+      const maxTextWidth = boxWidth - 20; // Internal padding
       
-      // Title Text
-      doc.setTextColor(50, 50, 50);
       doc.setFont(activeFont, "normal"); 
       
-      // Adjust size based on font (some are naturally smaller/larger)
-      let titleSize = 32;
-      if (activeFont === 'Bangers') titleSize = 38;
-      if (activeFont === 'PatrickHand') titleSize = 36;
+      const titleText = bookData.theme.toUpperCase();
+      const subtitleText = "COLORING BOOK";
+      const artistText = `Created for ${bookData.childName}`;
 
-      doc.setFontSize(titleSize);
-      doc.text(bookData.theme.toUpperCase(), width / 2, height / 2 - 10, { align: "center" });
+      // 1. Calculate Title Size
+      // Start larger for fun fonts
+      let titleFontSize = 36;
+      if (activeFont === 'Bangers') titleFontSize = 42;
+      if (activeFont === 'PatrickHand') titleFontSize = 40;
+      if (activeFont === 'Chewy') titleFontSize = 40;
+
+      doc.setFontSize(titleFontSize);
+      // Shrink to fit
+      while (doc.getTextWidth(titleText) > maxTextWidth && titleFontSize > 12) {
+        titleFontSize -= 1;
+        doc.setFontSize(titleFontSize);
+      }
+
+      // 2. Calculate Subtitle Size
+      let subtitleFontSize = 24;
+      doc.setFontSize(subtitleFontSize);
+      while (doc.getTextWidth(subtitleText) > maxTextWidth && subtitleFontSize > 10) {
+        subtitleFontSize -= 1;
+        doc.setFontSize(subtitleFontSize);
+      }
+
+      // 3. Calculate Artist Size (Child Name)
+      // Base size
+      let artistFontSize = 20;
+      doc.setFontSize(artistFontSize);
+      while (doc.getTextWidth(artistText) > maxTextWidth && artistFontSize > 10) {
+        artistFontSize -= 1;
+        doc.setFontSize(artistFontSize);
+      }
+
+      // -- Vertical Positioning --
+      // Approx height conversion (1pt ~ 0.35mm)
+      const ptToMm = 0.3528;
+      // Spacing between lines
+      const spacingSmall = 6;
+      const spacingLarge = 12;
+
+      const titleH = titleFontSize * ptToMm;
+      const subtitleH = subtitleFontSize * ptToMm;
+      const artistH = artistFontSize * ptToMm;
+
+      const totalBlockHeight = titleH + spacingSmall + subtitleH + spacingLarge + artistH;
+
+      // Start Y (top of the text block relative to box)
+      const blockStartY = boxY + (boxHeight - totalBlockHeight) / 2;
+
+      // Draw Title
+      let currentY = blockStartY + titleH;
       
-      // "Coloring Book" subtitle
-      doc.setFontSize(24);
-      doc.text("Coloring Book", width / 2, height / 2 + 5, { align: "center" });
+      // To simulate stroke/shadow for readability without white box
+      const drawTextWithOutline = (text: string, x: number, y: number, size: number, color: [number, number, number]) => {
+         doc.setFontSize(size);
+         
+         // Simulated outline (draw text slightly offset in white)
+         doc.setTextColor(255, 255, 255);
+         const offset = 0.5;
+         doc.text(text, x - offset, y - offset, { align: "center" });
+         doc.text(text, x + offset, y - offset, { align: "center" });
+         doc.text(text, x - offset, y + offset, { align: "center" });
+         doc.text(text, x + offset, y + offset, { align: "center" });
+         
+         // Main text
+         doc.setTextColor(color[0], color[1], color[2]);
+         doc.text(text, x, y, { align: "center" });
+      };
 
-      doc.setFontSize(18);
-      // Updated color to match new Primary (Indigo/Violet) approx #6366F1
-      doc.setTextColor(99, 102, 241); 
-      doc.text(`For ${bookData.childName}`, width / 2, height / 2 + 25, { align: "center" });
+      drawTextWithOutline(titleText, centerX, currentY, titleFontSize, [50, 50, 50]);
+      
+      // Draw Subtitle
+      currentY += spacingSmall + subtitleH;
+      drawTextWithOutline(subtitleText, centerX, currentY, subtitleFontSize, [236, 72, 153]);
+
+      // Draw Artist
+      currentY += spacingLarge + artistH;
+      drawTextWithOutline(artistText, centerX, currentY, artistFontSize, [99, 102, 241]);
     }
 
     // 2. Coloring Pages
@@ -132,11 +198,12 @@ export const generatePDF = async (bookData: BookData) => {
 
       doc.addImage(page.url, "PNG", x, y, finalW, finalH, undefined, "FAST");
       
-      // Footer
+      // Footer - Page Number at Bottom Right
       doc.setFont(activeFont, "normal");
       doc.setFontSize(12);
       doc.setTextColor(150, 150, 150);
-      doc.text(`Page ${index + 1} - ${bookData.childName}'s ${bookData.theme} Adventure`, width / 2, height - 10, { align: "center" });
+      // Aligned right, using margin for spacing
+      doc.text(`${index + 1}`, width - margin, height - 10, { align: "right" });
     });
 
     doc.save(`${bookData.childName}-${bookData.theme}-coloring-book.pdf`);

@@ -21,7 +21,7 @@ const getAgeContext = (ageGroup: string) => {
 
 /**
  * Programmatically generates a handwriting worksheet using HTML5 Canvas.
- * This ensures perfect text accuracy compared to AI image generation.
+ * Uses a masking technique to create single thick dashed lines.
  */
 const generateTracePage = (description: string, fontId: string): string => {
   const canvas = document.createElement('canvas');
@@ -34,12 +34,11 @@ const generateTracePage = (description: string, fontId: string): string => {
   canvas.width = width;
   canvas.height = height;
 
-  // Background
+  // 1. Draw Background (White)
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, width, height);
 
-  // Parse letters from description
-  // Format from generateScenes: "Handwriting practice for letters: A, B, C"
+  // Parse letters
   const lettersPart = description.split(": ")[1] || "";
   const letters = lettersPart.split(",").map(s => s.trim()).filter(l => l.length === 1);
 
@@ -47,7 +46,7 @@ const generateTracePage = (description: string, fontId: string): string => {
   const marginX = 100;
   let currentY = 150;
   
-  // Font Mapping for Header
+  // Font Mapping
   const fontMap: Record<string, string> = {
     'helvetica': 'Nunito, sans-serif',
     'chewy': 'Chewy, cursive',
@@ -56,36 +55,27 @@ const generateTracePage = (description: string, fontId: string): string => {
   };
   const headerFontFamily = fontMap[fontId] || 'Nunito, sans-serif';
 
-  // Header
+  // Draw Header directly on background
   ctx.font = `600 50px ${headerFontFamily}`;
-  ctx.fillStyle = "#1F2937"; // Dark gray
+  ctx.fillStyle = "#1F2937";
   ctx.fillText("Name: __________________________", marginX, currentY);
-  currentY += 120; // Space after header
+  currentY += 120;
 
-  // Dynamic sizing based on content
-  // We have restricted space. If many letters, shrink slightly.
-  // Standard: ~4-5 letters per page.
-  const availableHeight = height - currentY - 100; // Bottom padding
-  const rowsNeeded = letters.length * 2; // 2 rows per letter
-  // Calculate max row height that fits
+  // Dynamic sizing
+  const availableHeight = height - currentY - 100;
+  const rowsNeeded = letters.length * 2;
   const maxRowHeight = Math.floor(availableHeight / rowsNeeded);
-  const rowHeight = Math.min(220, Math.max(120, maxRowHeight)); // Clamp between 120 and 220
-  
-  // Font size relative to row height
-  const fontSize = Math.floor(rowHeight * 0.6); 
-  const font = `${fontSize}px Nunito, sans-serif`;
+  const rowHeight = Math.min(220, Math.max(120, maxRowHeight)); 
+  const fontSize = Math.floor(rowHeight * 0.65); 
+  const font = `700 ${fontSize}px Nunito, sans-serif`; // Bold for "Thick" lines
 
-  const guideWidth = width - (marginX * 2);
-
+  // 2. Draw Guides directly on background
   const drawGuides = (y: number) => {
-     // Guide lines relative to baseline 'y'
      const baseline = y;
-     const midline = y - (fontSize * 0.55); // Optically center roughly
+     const midline = y - (fontSize * 0.55); 
      const topline = y - (fontSize * 1.05);
 
      ctx.lineWidth = 2;
-     
-     // Top Line (Solid Gray)
      ctx.beginPath();
      ctx.moveTo(marginX, topline);
      ctx.lineTo(width - marginX, topline);
@@ -93,7 +83,6 @@ const generateTracePage = (description: string, fontId: string): string => {
      ctx.setLineDash([]);
      ctx.stroke();
 
-     // Middle Line (Dashed Blue-ish)
      ctx.beginPath();
      ctx.moveTo(marginX, midline);
      ctx.lineTo(width - marginX, midline);
@@ -101,7 +90,6 @@ const generateTracePage = (description: string, fontId: string): string => {
      ctx.setLineDash([15, 15]);
      ctx.stroke();
 
-     // Bottom Line (Solid Black)
      ctx.beginPath();
      ctx.moveTo(marginX, baseline);
      ctx.lineTo(width - marginX, baseline);
@@ -110,37 +98,274 @@ const generateTracePage = (description: string, fontId: string): string => {
      ctx.stroke();
   };
 
-  letters.forEach(letter => {
-     const pair = `${letter}${letter.toLowerCase()}`; // "Aa"
-     const pairWithSpace = `${pair}    `; // Add spacing for repetition
-     
-     // --- ROW 1: REPEATED PATTERN ---
-     let row1BaseY = currentY + (rowHeight * 0.75);
-     drawGuides(row1BaseY);
+  // 3. Create a separate canvas for the Text so we can mask it safely
+  const textCanvas = document.createElement('canvas');
+  textCanvas.width = width;
+  textCanvas.height = height;
+  const tCtx = textCanvas.getContext('2d');
+  if (!tCtx) return canvas.toDataURL();
 
-     ctx.font = font;
-     ctx.fillStyle = "#D1D5DB"; // Light Gray for tracing
+  tCtx.font = font;
+  // Use a dark gray for the trace lines
+  tCtx.fillStyle = "#4B5563"; // Gray 600
+
+  // Draw all letters onto the text canvas (Solid)
+  let layoutY = currentY;
+  letters.forEach(letter => {
+     const pair = `${letter}${letter.toLowerCase()}`;
+     const pairWithSpace = `${pair}    `;
      
-     let textX = marginX + 20; // Slight indent
-     // Fill the line
+     // Row 1
+     let row1BaseY = layoutY + (rowHeight * 0.75);
+     drawGuides(row1BaseY); // Draw guide on main ctx
+     
+     let textX = marginX + 20;
      while (textX + ctx.measureText(pair).width < width - marginX) {
-        ctx.fillText(pair, textX, row1BaseY - (fontSize * 0.05)); // Small visual tweak for baseline
+        tCtx.fillText(pair, textX, row1BaseY - (fontSize * 0.05));
         textX += ctx.measureText(pairWithSpace).width;
      }
-     
-     currentY += rowHeight;
+     layoutY += rowHeight;
 
-     // --- ROW 2: SINGLE + SPACE ---
-     let row2BaseY = currentY + (rowHeight * 0.75);
-     drawGuides(row2BaseY);
-
-     ctx.fillStyle = "#D1D5DB"; 
-     ctx.fillText(pair, marginX + 20, row2BaseY - (fontSize * 0.05));
-     
-     currentY += rowHeight;
+     // Row 2
+     let row2BaseY = layoutY + (rowHeight * 0.75);
+     drawGuides(row2BaseY); // Draw guide on main ctx
+     tCtx.fillText(pair, marginX + 20, row2BaseY - (fontSize * 0.05));
+     layoutY += rowHeight;
   });
 
+  // 4. Apply "Dashed" Mask to the Text Canvas
+  // We use destination-out to erase diagonal strips from the text, creating dashes
+  tCtx.globalCompositeOperation = 'destination-out';
+  
+  // Create the diagonal stripe pattern
+  const pCanvas = document.createElement('canvas');
+  const pSize = 16; // Pattern tile size
+  pCanvas.width = pSize;
+  pCanvas.height = pSize;
+  const pCtx = pCanvas.getContext('2d');
+  if (pCtx) {
+    pCtx.strokeStyle = "black"; // Color irrelevant, only alpha matters
+    pCtx.lineWidth = 4; // Width of the GAP
+    pCtx.beginPath();
+    // Diagonal line
+    pCtx.moveTo(0, 0);
+    pCtx.lineTo(pSize, pSize);
+    pCtx.moveTo(pSize, 0); // Cross hatch or single? Single is cleaner for flow.
+    // Let's do a single strong diagonal gap
+    pCtx.stroke();
+    
+    // Add a second line to ensure continuity of pattern at edges if needed
+    pCtx.beginPath();
+    pCtx.moveTo(-pSize/2, -pSize/2);
+    pCtx.lineTo(pSize * 1.5, pSize * 1.5);
+    pCtx.stroke();
+    
+    const pattern = tCtx.createPattern(pCanvas, 'repeat');
+    if (pattern) {
+      tCtx.fillStyle = pattern;
+      tCtx.fillRect(0, 0, width, height);
+    }
+  }
+
+  // 5. Composite the Dashed Text onto the Main Background
+  ctx.drawImage(textCanvas, 0, 0);
+
   return canvas.toDataURL("image/png");
+};
+
+/**
+ * Processes a base64 image to add Color-by-Number segmentation and numbers.
+ * Uses client-side Canvas pixel manipulation to identify white regions.
+ */
+const processColorByNumber = async (base64Image: string): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = "Anonymous"; // Though it's base64, good practice
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        if (!ctx) { resolve(base64Image); return; }
+
+        // Set canvas size (original + footer space)
+        const footerHeight = 150;
+        canvas.width = img.width;
+        canvas.height = img.height + footerHeight;
+
+        // Fill white
+        ctx.fillStyle = 'white';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // Draw original image
+        ctx.drawImage(img, 0, 0);
+
+        // --- SEGMENTATION LOGIC ---
+        const width = img.width;
+        const height = img.height;
+        const imageData = ctx.getImageData(0, 0, width, height);
+        const data = imageData.data;
+        
+        const visited = new Int8Array(width * height); // 0 = unvisited
+        const regions: {x: number, y: number, size: number, id: number}[] = [];
+        
+        // Queue for BFS (pre-allocated for performance)
+        const q = new Int32Array(width * height);
+        
+        // Iterate pixels
+        // Step > 1 for performance finding seeds, but we need accurate fill
+        for (let y = 10; y < height - 10; y += 4) {
+          for (let x = 10; x < width - 10; x += 4) {
+            const idx = y * width + x;
+            if (visited[idx]) continue;
+
+            // Check if white-ish
+            if (data[idx * 4] < 200 || data[idx * 4 + 1] < 200 || data[idx * 4 + 2] < 200) {
+              visited[idx] = 1; // Mark dark pixels as visited
+              continue;
+            }
+
+            // Start Flood Fill
+            let head = 0;
+            let tail = 0;
+            q[tail++] = idx;
+            visited[idx] = 1;
+
+            let count = 0;
+            let sumX = 0;
+            let sumY = 0;
+            let minX = x, maxX = x, minY = y, maxY = y;
+
+            while(head < tail) {
+              const currIdx = q[head++];
+              const cx = currIdx % width;
+              const cy = Math.floor(currIdx / width);
+
+              count++;
+              sumX += cx;
+              sumY += cy;
+              
+              // Bounding box
+              if (cx < minX) minX = cx;
+              if (cx > maxX) maxX = cx;
+              if (cy < minY) minY = cy;
+              if (cy > maxY) maxY = cy;
+
+              // Check neighbors (4-way)
+              const neighbors = [currIdx - 1, currIdx + 1, currIdx - width, currIdx + width];
+              
+              for (const nIdx of neighbors) {
+                 if (nIdx >= 0 && nIdx < width * height && !visited[nIdx]) {
+                    // Boundary check for wrapping
+                    const nx = nIdx % width;
+                    // Prevent wrapping around edges of image
+                    if (Math.abs(nx - cx) > 1) continue; 
+
+                    if (data[nIdx * 4] > 200 && data[nIdx * 4 + 1] > 200 && data[nIdx * 4 + 2] > 200) {
+                       visited[nIdx] = 1;
+                       q[tail++] = nIdx;
+                    }
+                 }
+              }
+            }
+
+            // Process Region
+            // Threshold: Region must be big enough (e.g. 0.1% of image or fixed pixel count)
+            // 1024x1024 = 1M pixels. 1000 pixels is small but visible.
+            if (count > 800) {
+               const centerX = Math.floor(sumX / count);
+               const centerY = Math.floor(sumY / count);
+               
+               // Naive interior check: is the centroid white?
+               const cIdx = centerY * width + centerX;
+               if (data[cIdx * 4] > 200) {
+                  regions.push({
+                    x: centerX, 
+                    y: centerY, 
+                    size: count,
+                    id: Math.floor(Math.random() * 5) + 1 // Random 1-5
+                  });
+               }
+            }
+          }
+        }
+
+        // --- DRAW NUMBERS ---
+        // Scale font size based on image size
+        const fontSize = Math.max(14, Math.floor(width / 40)); 
+        ctx.font = `600 ${fontSize}px sans-serif`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillStyle = "#6B7280"; // Cool Gray 500
+
+        regions.forEach(r => {
+           ctx.fillText(r.id.toString(), r.x, r.y);
+        });
+
+        // --- DRAW LEGEND ---
+        const legendY = height + (footerHeight / 2);
+        const legendColors = [
+           {id: 1, label: "Red", color: "#EF4444"},
+           {id: 2, label: "Blue", color: "#3B82F6"},
+           {id: 3, label: "Green", color: "#22C55E"},
+           {id: 4, label: "Yellow", color: "#EAB308"},
+           {id: 5, label: "Purple", color: "#A855F7"},
+        ];
+
+        // Draw separator
+        ctx.beginPath();
+        ctx.moveTo(50, height + 20);
+        ctx.lineTo(width - 50, height + 20);
+        ctx.strokeStyle = "#E5E7EB";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        ctx.font = `bold ${fontSize + 4}px Nunito, sans-serif`;
+        ctx.fillStyle = "#111827";
+        ctx.textAlign = "left";
+        
+        // Calculate layout
+        const itemWidth = width / 6;
+        let startX = (width - (itemWidth * 5)) / 2;
+
+        legendColors.forEach((lc, i) => {
+            const x = startX + (i * itemWidth);
+            
+            // Color Circle
+            ctx.beginPath();
+            ctx.arc(x, legendY, fontSize, 0, 2 * Math.PI);
+            ctx.fillStyle = "white"; // Interior
+            ctx.fill();
+            ctx.lineWidth = 3;
+            ctx.strokeStyle = lc.color; // Colored border
+            ctx.stroke();
+
+            // Number inside circle
+            ctx.fillStyle = "#111827";
+            ctx.textAlign = "center";
+            ctx.fillText(lc.id.toString(), x, legendY + (fontSize * 0.1));
+
+            // Label below
+            ctx.font = `600 ${fontSize * 0.8}px Nunito, sans-serif`;
+            ctx.fillStyle = "#4B5563";
+            ctx.fillText(lc.label, x, legendY + fontSize * 2.5);
+            
+            // Reset font for next circle number
+            ctx.font = `bold ${fontSize + 4}px Nunito, sans-serif`;
+        });
+
+        resolve(canvas.toDataURL("image/png"));
+
+      } catch (e) {
+        console.error("Error processing color by number", e);
+        resolve(base64Image); // Return original on failure
+      }
+    };
+    img.onerror = (e) => {
+       console.error("Image load error", e);
+       resolve(base64Image);
+    };
+    img.src = base64Image;
+  });
 };
 
 export const generateScenes = async (
@@ -230,8 +455,6 @@ export const generateImage = async (
   
   // INTERCEPT: If mode is trace and it's a page, use programmatic generation
   if (mode === 'trace' && type === 'page') {
-    // We wrap this in a promise to match the async signature, 
-    // though canvas generation is synchronous.
     return Promise.resolve(generateTracePage(description, fontId));
   }
 
@@ -265,12 +488,14 @@ export const generateImage = async (
     }
 
     if (mode === 'number') {
-      prompt = `A black and white "color by number" coloring page for children aged ${ageGroup}.
+      // For Color by Number, we now generate a CLEAN standard image first, 
+      // then programmatically add the numbers and legend.
+      // So we ask for a high-contrast, simple closed-shape image.
+      prompt = `A clean, simple black and white coloring page.
       Subject: ${description}.
-      Style: ${styleInstruction}
-      IMPORTANT: The image must be segmented into distinct regions. Inside each region, place a small number (e.g. 1, 2, 3, 4, 5). 
-      Include a simple Legend/Key at the bottom of the page (e.g. 1=Red, 2=Blue).
-      Pure white background. Black line art. No shading, no grayscale, no filled colors.`;
+      Style: ${styleInstruction}.
+      IMPORTANT: Use closed lines and distinct segments. High contrast black ink on white.
+      NO shading, NO grayscale, NO gradients. Simple vector style line art.`;
     } else if (mode === 'letter') {
       prompt = `A black and white "color by letter" coloring page for children aged ${ageGroup}.
       Subject: ${description}.
@@ -311,8 +536,14 @@ export const generateImage = async (
     if (!base64Data) throw new Error("No image data returned");
 
     const mimeType = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.mimeType || "image/png";
+    const finalBase64 = `data:${mimeType};base64,${base64Data}`;
 
-    return `data:${mimeType};base64,${base64Data}`;
+    // POST-PROCESSING for Color By Number
+    if (mode === 'number' && type === 'page') {
+       return await processColorByNumber(finalBase64);
+    }
+
+    return finalBase64;
 
   } catch (error) {
     console.error("Error generating image:", error);
