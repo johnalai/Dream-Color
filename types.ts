@@ -1,3 +1,5 @@
+export type ColoringMode = 'standard' | 'number' | 'letter' | 'trace';
+
 export interface Scene {
   id: string;
   description: string;
@@ -14,6 +16,8 @@ export interface BookData {
   theme: string;
   childName: string;
   ageGroup: string;
+  fontId: string;
+  coloringMode: ColoringMode;
   scenes: Scene[];
   images: GeneratedImage[];
 }
