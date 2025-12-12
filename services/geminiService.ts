@@ -43,7 +43,6 @@ export const generateScenes = async (
 
       const endIdx = Math.min(startIdx + lettersPerPage, totalLetters);
       const pageLetters = alphabet.slice(startIdx, endIdx);
-      const rangeLabel = `${pageLetters[0]}-${pageLetters[pageLetters.length - 1]}`;
       
       scenes.push({
         id: `scene-${i}`,
@@ -151,17 +150,24 @@ export const generateImage = async (
       // Extract letters from description "Handwriting practice for letters: A, B, C" -> "A, B, C"
       const letters = description.replace("Handwriting practice for letters: ", "");
       
-      prompt = `A black and white educational handwriting worksheet.
-      Layout: Horizontal ruled handwriting lines.
-      Header: Include "Name: _______________" at the very top.
-      Content: Handwriting practice for these letters: ${letters}.
+      prompt = `A clean, black and white handwriting practice worksheet.
+      HEADER: "Name: __________________________"
       
-      STRICT STRUCTURE FOR EACH LETTER (Repeat this pattern for every assigned letter):
-      1. First Line: The uppercase and lowercase letter (e.g., 'A a') repeated across the entire line in DOTTED/DASHED font for tracing.
-      2. Second Line: The uppercase and lowercase letter (e.g., 'A a') appearing ONCE at the start in DOTTED font, followed by empty ruled space for the rest of the line.
+      TASK: Create handwriting practice rows for the following letters: ${letters}.
       
-      Constraint: NO PICTURES. NO ILLUSTRATIONS. NO CARTOONS. Text and lines only.
-      Style: Clean, minimalist, academic worksheet. High contrast black and white.`;
+      FORMAT (Strictly follow this alternating pattern for EACH letter):
+      1. TRACE ROW: Repeat the letter pair (e.g. "A a  A a  A a") across the whole line in DOTTED/DASHED font.
+      2. PRACTICE ROW: Write the letter pair (e.g. "A a") ONCE in DOTTED font at the start, then leave the rest of the line empty for practice.
+      
+      Example layout for letter B:
+      Row 1: B b  B b  B b  B b  B b
+      Row 2: B b  __________________
+      
+      CONSTRAINTS:
+      - NO PICTURES or illustrations.
+      - NO RANDOM LETTERS. Only use the letters specified: ${letters}.
+      - High contrast black lines on white background.
+      - Standard 3-line school writing guides (top, dotted-middle, bottom).`;
     } else {
       prompt = `A black and white coloring book page for children aged ${ageGroup}. 
       Subject: ${description}. 
