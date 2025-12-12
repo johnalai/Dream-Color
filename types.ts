@@ -12,12 +12,19 @@ export interface GeneratedImage {
   type: 'cover' | 'page';
 }
 
+export interface TraceConfig {
+  lineThickness: 'thin' | 'medium' | 'thick';
+  spacing: 'compact' | 'normal' | 'wide';
+  includeNumbers: boolean;
+}
+
 export interface BookData {
   theme: string;
   childName: string;
   ageGroup: string;
   fontId: string;
   coloringMode: ColoringMode;
+  traceConfig?: TraceConfig;
   scenes: Scene[];
   images: GeneratedImage[];
 }

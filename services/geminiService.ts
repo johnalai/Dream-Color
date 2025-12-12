@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import { Scene, GeneratedImage, ColoringMode } from "../types";
+import { Scene, GeneratedImage, ColoringMode, TraceConfig } from "../types";
 
 // Initialize Gemini AI
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
@@ -23,7 +23,7 @@ const getAgeContext = (ageGroup: string) => {
  * Programmatically generates a handwriting worksheet using HTML5 Canvas.
  * Uses a masking technique to create single thick dashed lines.
  */
-const generateTracePage = (description: string, fontId: string): string => {
+const generateTracePage = (description: string, fontId: string, traceConfig?: TraceConfig): string => {
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error("Canvas not supported");
@@ -44,12 +44,13 @@ const generateTracePage = (description: string, fontId: string): string => {
   // Try standard format first "Handwriting practice for letters: A, B, C"
   if (description.includes(":")) {
     const part = description.split(":")[1];
-    letters = part.split(",").map(s => s.trim()).filter(l => l.length === 1 && /[A-Za-z]/.test(l));
+    // Allow numbers too
+    letters = part.split(",").map(s => s.trim()).filter(l => l.length === 1 && /[A-Za-z0-9]/.test(l));
   }
   
-  // Fallback: Extract distinct single uppercase letters if split failed
+  // Fallback: Extract distinct single alphanumeric chars if split failed
   if (letters.length === 0) {
-     const matches = description.match(/\b[A-Z]\b/g);
+     const matches = description.match(/\b[A-Za-z0-9]\b/g);
      if (matches) {
         // Unique filter
         letters = [...new Set(matches)];
@@ -61,7 +62,6 @@ const generateTracePage = (description: string, fontId: string): string => {
      // Check if it's a name practice
      if (description.toLowerCase().includes("name:")) {
         // Just take the first letter of the name if we can't do the whole name in this grid layout
-        // actually for name practice we might want to change behavior, but let's stick to simple
         letters = ['A']; 
      } else {
         letters = ['A'];
@@ -79,7 +79,10 @@ const generateTracePage = (description: string, fontId: string): string => {
     'bangers': 'Bangers, cursive',
     'patrick': '"Patrick Hand", cursive',
     'schoolbell': 'Schoolbell, cursive',
-    'recursive': 'Recursive, sans-serif'
+    'recursive': 'Recursive, sans-serif',
+    'alfa': '"Alfa Slab One", cursive',
+    'lobster': 'Lobster, cursive',
+    'marker': '"Permanent Marker", cursive'
   };
   const headerFontFamily = fontMap[fontId] || 'Nunito, sans-serif';
 
@@ -89,14 +92,24 @@ const generateTracePage = (description: string, fontId: string): string => {
   ctx.fillText("Name: __________________________", marginX, currentY);
   currentY += 120;
 
+  // CONFIGURATION: Spacing
+  const spacingMode = traceConfig?.spacing || 'normal';
+  let rowHeightMultiplier = 1.0;
+  if (spacingMode === 'compact') rowHeightMultiplier = 0.8;
+  if (spacingMode === 'wide') rowHeightMultiplier = 1.3;
+
   // Dynamic sizing
   const availableHeight = height - currentY - 100;
-  // If we have just 1-2 letters, don't make them massively huge, cap the row height
   const rowsNeeded = Math.max(letters.length * 2, 4); 
   const maxRowHeight = Math.floor(availableHeight / rowsNeeded);
-  const rowHeight = Math.min(220, Math.max(120, maxRowHeight)); 
+  let rowHeight = Math.min(220, Math.max(120, maxRowHeight)) * rowHeightMultiplier; 
+  // Ensure it doesn't blow out bounds if wide
+  if (rowsNeeded * rowHeight > availableHeight) {
+     rowHeight = availableHeight / rowsNeeded;
+  }
+  
   const fontSize = Math.floor(rowHeight * 0.65); 
-  const font = `700 ${fontSize}px ${headerFontFamily.split(',')[0]}, sans-serif`; // Use selected font for tracing too
+  const font = `700 ${fontSize}px ${headerFontFamily.split(',')[0]}, sans-serif`; 
 
   // 2. Draw Guides directly on background
   const drawGuides = (y: number) => {
@@ -141,10 +154,20 @@ const generateTracePage = (description: string, fontId: string): string => {
   // Draw all letters onto the text canvas (Solid)
   let layoutY = currentY;
   letters.forEach(letter => {
-     const pair = `${letter}${letter.toLowerCase()}`;
+     // Check if it is a number
+     const isNumber = /[0-9]/.test(letter);
+     
+     // For numbers, we repeat the number. For letters, we do case pair.
+     let pair = "";
+     if (isNumber) {
+        pair = `${letter}  ${letter}`;
+     } else {
+        pair = `${letter}${letter.toLowerCase()}`;
+     }
+     
      const pairWithSpace = `${pair}    `;
      
-     // CRITICAL FIX: Use tCtx to measure, not ctx (which has the small header font)
+     // Use tCtx to measure
      const pairWidth = tCtx.measureText(pair).width;
      const spaceWidth = tCtx.measureText(pairWithSpace).width;
 
@@ -173,6 +196,13 @@ const generateTracePage = (description: string, fontId: string): string => {
   // We use destination-out to erase diagonal strips from the text, creating dashes
   tCtx.globalCompositeOperation = 'destination-out';
   
+  // CONFIGURATION: Thickness (Gap Width)
+  const thicknessMode = traceConfig?.lineThickness || 'medium';
+  let gapWidth = 4;
+  if (thicknessMode === 'thin') gapWidth = 6;
+  if (thicknessMode === 'medium') gapWidth = 4;
+  if (thicknessMode === 'thick') gapWidth = 2;
+
   // Create the diagonal stripe pattern
   const pCanvas = document.createElement('canvas');
   const pSize = 16; // Pattern tile size
@@ -181,16 +211,15 @@ const generateTracePage = (description: string, fontId: string): string => {
   const pCtx = pCanvas.getContext('2d');
   if (pCtx) {
     pCtx.strokeStyle = "black"; // Color irrelevant, only alpha matters
-    pCtx.lineWidth = 4; // Width of the GAP
+    pCtx.lineWidth = gapWidth; 
     pCtx.beginPath();
     // Diagonal line
     pCtx.moveTo(0, 0);
     pCtx.lineTo(pSize, pSize);
-    pCtx.moveTo(pSize, 0); // Cross hatch or single? Single is cleaner for flow.
-    // Let's do a single strong diagonal gap
+    pCtx.moveTo(pSize, 0); 
     pCtx.stroke();
     
-    // Add a second line to ensure continuity of pattern at edges if needed
+    // Add a second line to ensure continuity
     pCtx.beginPath();
     pCtx.moveTo(-pSize/2, -pSize/2);
     pCtx.lineTo(pSize * 1.5, pSize * 1.5);
@@ -408,30 +437,39 @@ export const generateScenes = async (
   theme: string, 
   pageCount: number, 
   ageGroup: string,
-  mode: ColoringMode = 'standard'
+  mode: ColoringMode = 'standard',
+  traceConfig?: TraceConfig
 ): Promise<Scene[]> => {
   
   // SPECIAL HANDLING FOR TRACE MODE
-  // We don't want random scenes; we want A-Z split across the pages.
   if (mode === 'trace') {
-    const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split('');
+    let pool = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split('');
+    
+    // Add numbers if configured
+    if (traceConfig?.includeNumbers) {
+      pool = pool.concat("0123456789".split(''));
+    }
+
     const scenes: Scene[] = [];
     
-    // Calculate letters per page
-    const totalLetters = 26;
-    const lettersPerPage = Math.ceil(totalLetters / pageCount);
+    const totalItems = pool.length;
+    // Calculate how many items per page to fit everything, or at least fill the requested pages
+    // If requested pages < total items, we split.
+    // If requested pages > total items, we repeat or reduce page count? 
+    // Let's stick to filling the requested pageCount.
+    
+    const itemsPerPage = Math.ceil(totalItems / pageCount);
     
     for (let i = 0; i < pageCount; i++) {
-      const startIdx = i * lettersPerPage;
-      // If we've run out of letters, stop generating pages (or just loop/fill)
-      if (startIdx >= totalLetters) break;
+      const startIdx = i * itemsPerPage;
+      if (startIdx >= totalItems) break;
 
-      const endIdx = Math.min(startIdx + lettersPerPage, totalLetters);
-      const pageLetters = alphabet.slice(startIdx, endIdx);
+      const endIdx = Math.min(startIdx + itemsPerPage, totalItems);
+      const pageItems = pool.slice(startIdx, endIdx);
       
       scenes.push({
         id: `scene-${i}`,
-        description: `Handwriting practice for letters: ${pageLetters.join(', ')}`,
+        description: `Handwriting practice for: ${pageItems.join(', ')}`,
       });
     }
     return scenes;
@@ -486,12 +524,13 @@ export const generateImage = async (
   type: 'cover' | 'page',
   ageGroup: string = '3-5',
   mode: ColoringMode = 'standard',
-  fontId: string = 'helvetica'
+  fontId: string = 'helvetica',
+  traceConfig?: TraceConfig
 ): Promise<string> => {
   
   // INTERCEPT: If mode is trace and it's a page, use programmatic generation
   if (mode === 'trace' && type === 'page') {
-    return Promise.resolve(generateTracePage(description, fontId));
+    return Promise.resolve(generateTracePage(description, fontId, traceConfig));
   }
 
   const model = "gemini-2.5-flash-image"; 

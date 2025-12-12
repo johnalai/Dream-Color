@@ -6,14 +6,20 @@ const FONT_URLS: Record<string, string> = {
   'chewy': 'https://raw.githubusercontent.com/google/fonts/main/ofl/chewy/Chewy-Regular.ttf',
   'patrick': 'https://raw.githubusercontent.com/google/fonts/main/ofl/patrickhand/PatrickHand-Regular.ttf',
   'bangers': 'https://raw.githubusercontent.com/google/fonts/main/ofl/bangers/Bangers-Regular.ttf',
-  'schoolbell': 'https://raw.githubusercontent.com/google/fonts/main/ofl/schoolbell/Schoolbell-Regular.ttf'
+  'schoolbell': 'https://raw.githubusercontent.com/google/fonts/main/ofl/schoolbell/Schoolbell-Regular.ttf',
+  'alfa': 'https://raw.githubusercontent.com/google/fonts/main/ofl/alfaslabone/AlfaSlabOne-Regular.ttf',
+  'lobster': 'https://raw.githubusercontent.com/google/fonts/main/ofl/lobster/Lobster-Regular.ttf',
+  'marker': 'https://raw.githubusercontent.com/google/fonts/main/ofl/permanentmarker/PermanentMarker-Regular.ttf'
 };
 
 const FONT_NAMES: Record<string, string> = {
   'chewy': 'Chewy',
   'patrick': 'PatrickHand',
   'bangers': 'Bangers',
-  'schoolbell': 'Schoolbell'
+  'schoolbell': 'Schoolbell',
+  'alfa': 'AlfaSlabOne',
+  'lobster': 'Lobster',
+  'marker': 'PermanentMarker'
 };
 
 // Helper to fetch font and convert to base64 using FileReader
@@ -104,6 +110,9 @@ export const generatePDF = async (bookData: BookData) => {
       if (activeFont === 'PatrickHand') titleFontSize = 40;
       if (activeFont === 'Chewy') titleFontSize = 40;
       if (activeFont === 'Schoolbell') titleFontSize = 38;
+      if (activeFont === 'AlfaSlabOne') titleFontSize = 32; // It's wide
+      if (activeFont === 'Lobster') titleFontSize = 36;
+      if (activeFont === 'PermanentMarker') titleFontSize = 36;
 
       doc.setFontSize(titleFontSize);
       // Shrink to fit

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { AppState, BookData, GeneratedImage, Scene, ColoringMode } from './types';
+import { AppState, BookData, GeneratedImage, Scene, ColoringMode, TraceConfig } from './types';
 import { generateScenes, generateImage } from './services/geminiService';
 import { generatePDF } from './services/pdfService';
 import { Button } from './components/Button';
@@ -27,7 +27,9 @@ import {
   RotateCcw,
   Lightbulb,
   Plus,
-  AlertTriangle
+  AlertTriangle,
+  MoveVertical,
+  Minus
 } from 'lucide-react';
 
 const THEME_IDEAS = [
@@ -71,7 +73,10 @@ const FONTS = [
   { id: 'bangers', label: 'Comic', family: 'Bangers, cursive' },
   { id: 'patrick', label: 'Handwritten', family: 'Patrick Hand, cursive' },
   { id: 'schoolbell', label: 'Classroom', family: 'Schoolbell, cursive' },
-  { id: 'recursive', label: 'Modern', family: 'Recursive, sans-serif' }
+  { id: 'recursive', label: 'Modern', family: 'Recursive, sans-serif' },
+  { id: 'alfa', label: 'Bold', family: '"Alfa Slab One", cursive' },
+  { id: 'lobster', label: 'Fancy', family: 'Lobster, cursive' },
+  { id: 'marker', label: 'Marker', family: '"Permanent Marker", cursive' }
 ];
 
 const COLORING_MODES: { id: ColoringMode; label: string; icon: React.ReactNode; desc: string; tooltip: string }[] = [
@@ -115,6 +120,14 @@ const App: React.FC = () => {
   const [ageGroup, setAgeGroup] = useState('3-5');
   const [selectedFont, setSelectedFont] = useState('chewy');
   const [coloringMode, setColoringMode] = useState<ColoringMode>('standard');
+  
+  // Trace Configuration State
+  const [traceConfig, setTraceConfig] = useState<TraceConfig>({
+    lineThickness: 'medium',
+    spacing: 'normal',
+    includeNumbers: false
+  });
+
   const [bookData, setBookData] = useState<BookData>({
     theme: '',
     childName: '',
@@ -160,6 +173,7 @@ const App: React.FC = () => {
         if (data.ageGroup) setAgeGroup(data.ageGroup);
         if (data.selectedFont) setSelectedFont(data.selectedFont);
         if (data.coloringMode) setColoringMode(data.coloringMode);
+        if (data.traceConfig) setTraceConfig(data.traceConfig); // Restore trace config
         if (data.bookData) setBookData(data.bookData);
 
         // Smart State Restoration
@@ -190,6 +204,7 @@ const App: React.FC = () => {
           ageGroup, 
           selectedFont, 
           coloringMode, 
+          traceConfig,
           bookData,
           timestamp: Date.now()
         };
@@ -203,7 +218,7 @@ const App: React.FC = () => {
     }, 1000); // Debounce save
 
     return () => clearTimeout(timeoutId);
-  }, [state, theme, childName, pageCount, ageGroup, selectedFont, coloringMode, bookData]);
+  }, [state, theme, childName, pageCount, ageGroup, selectedFont, coloringMode, traceConfig, bookData]);
 
   // Suggestion Rotation Logic
   useEffect(() => {
@@ -245,7 +260,8 @@ const App: React.FC = () => {
       // Only generate scenes if we aren't resuming or don't have them
       if (!isResuming || scenesToUse.length === 0) {
         setStatusMessage("Dreaming up the story...");
-        scenesToUse = await generateScenes(theme, pageCount, ageGroup, coloringMode);
+        // Pass traceConfig to generateScenes so it knows whether to include numbers
+        scenesToUse = await generateScenes(theme, pageCount, ageGroup, coloringMode, traceConfig);
         
         // Abort if reset happened
         if (genSessionId.current !== currentSessionId) return;
@@ -257,6 +273,7 @@ const App: React.FC = () => {
           ageGroup, 
           fontId: selectedFont,
           coloringMode,
+          traceConfig, // Store the config used
           scenes: scenesToUse,
           images: [] // Reset images if new scenes
         }));
@@ -269,7 +286,7 @@ const App: React.FC = () => {
       
       // Pass existing images if resuming
       const currentImages = isResuming ? bookData.images : [];
-      await generateBookImages(scenesToUse, theme, ageGroup, coloringMode, currentImages, selectedFont, currentSessionId);
+      await generateBookImages(scenesToUse, theme, ageGroup, coloringMode, currentImages, selectedFont, traceConfig, currentSessionId);
       
     } catch (err) {
       if (genSessionId.current === currentSessionId) {
@@ -302,7 +319,7 @@ const App: React.FC = () => {
           };
        } else {
           // Generate 1 new scene based on theme
-          const newScenes = await generateScenes(theme, 1, ageGroup, coloringMode);
+          const newScenes = await generateScenes(theme, 1, ageGroup, coloringMode, traceConfig);
           if (!newScenes || newScenes.length === 0) throw new Error("No scene generated");
           newScene = {
             ...newScenes[0],
@@ -313,7 +330,7 @@ const App: React.FC = () => {
        if (genSessionId.current !== currentSessionId) return;
 
        // Generate Image
-       const imageUrl = await generateImage(newScene.description, 'page', ageGroup, coloringMode, selectedFont);
+       const imageUrl = await generateImage(newScene.description, 'page', ageGroup, coloringMode, selectedFont, traceConfig);
        
        if (genSessionId.current !== currentSessionId) return;
 
@@ -351,6 +368,7 @@ const App: React.FC = () => {
     mode: ColoringMode,
     existingImages: GeneratedImage[],
     fontId: string,
+    currentTraceConfig: TraceConfig,
     sessionId: number
   ) => {
     const totalSteps = scenes.length + 1; // +1 for cover
@@ -370,7 +388,7 @@ const App: React.FC = () => {
       if (!hasCover) {
         if (genSessionId.current !== sessionId) return; // ABORT Check
         setStatusMessage("Designing the cover...");
-        const coverUrl = await generateImage(currentTheme, 'cover', currentAge, mode, fontId);
+        const coverUrl = await generateImage(currentTheme, 'cover', currentAge, mode, fontId, currentTraceConfig);
         
         if (genSessionId.current !== sessionId) return; // ABORT Check
         
@@ -403,7 +421,7 @@ const App: React.FC = () => {
 
         setStatusMessage(`Drawing page ${i + 1} of ${scenes.length}: ${scene.description.substring(0, 30)}...`);
         
-        const pageUrl = await generateImage(scene.description, 'page', currentAge, mode, fontId);
+        const pageUrl = await generateImage(scene.description, 'page', currentAge, mode, fontId, currentTraceConfig);
         
         if (genSessionId.current !== sessionId) return; // ABORT Check
 
@@ -463,7 +481,10 @@ const App: React.FC = () => {
       'bangers': 'Bangers, cursive',
       'patrick': 'Patrick Hand, cursive',
       'schoolbell': 'Schoolbell, cursive',
-      'recursive': 'Recursive, sans-serif'
+      'recursive': 'Recursive, sans-serif',
+      'alfa': '"Alfa Slab One", cursive',
+      'lobster': 'Lobster, cursive',
+      'marker': '"Permanent Marker", cursive'
     };
     const titleFontFamily = fontMap[bookData.fontId] || 'Nunito, sans-serif';
 
@@ -583,7 +604,7 @@ const App: React.FC = () => {
               box-sizing: border-box;
             }
           </style>
-          <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&family=Bangers&family=Chewy&family=Patrick+Hand&family=Schoolbell&family=Recursive:wght,CASL@400..800,1&display=swap" rel="stylesheet">
+          <link href="https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=Lobster&family=Permanent+Marker&family=Nunito:wght@400;600;700;800&family=Bangers&family=Chewy&family=Patrick+Hand&family=Schoolbell&family=Recursive:wght,CASL@400..800,1&display=swap" rel="stylesheet">
         </head>
         <body>
           ${bookData.images.map((img, i) => {
@@ -652,6 +673,11 @@ const App: React.FC = () => {
     setAgeGroup('3-5'); // Reset to default
     setSelectedFont('chewy'); // Reset to default
     setColoringMode('standard'); // Reset to default
+    setTraceConfig({ // Reset trace config
+       lineThickness: 'medium',
+       spacing: 'normal',
+       includeNumbers: false
+    });
     setBookData({ 
       theme: '', 
       childName: '', 
@@ -972,39 +998,112 @@ const App: React.FC = () => {
                   </div>
                 </div>
 
+                {/* Trace Options Sub-Panel */}
+                {coloringMode === 'trace' && (
+                  <div className="bg-orange-50 p-6 rounded-2xl border border-orange-100 animate-fadeIn">
+                     <h3 className="text-lg font-display font-bold mb-4 text-orange-900 flex items-center gap-2">
+                        <PencilLine className="w-5 h-5 text-orange-600" /> Trace Settings
+                     </h3>
+                     
+                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        {/* Include Numbers */}
+                        <div className="flex items-center justify-between bg-white p-3 rounded-xl border border-orange-200">
+                          <span className="font-bold text-slate-700">Include Numbers (0-9)</span>
+                          <button 
+                            type="button"
+                            onClick={() => setTraceConfig(prev => ({ ...prev, includeNumbers: !prev.includeNumbers }))}
+                            className={`w-12 h-6 rounded-full transition-colors relative ${traceConfig.includeNumbers ? 'bg-orange-500' : 'bg-slate-300'}`}
+                          >
+                             <div className={`w-4 h-4 bg-white rounded-full shadow-sm absolute top-1 transition-transform ${traceConfig.includeNumbers ? 'left-7' : 'left-1'}`} />
+                          </button>
+                        </div>
+
+                        {/* Line Thickness */}
+                        <div>
+                          <label className="block text-sm font-bold text-slate-500 mb-2">Line Thickness</label>
+                          <div className="flex bg-white rounded-xl border border-orange-200 p-1">
+                             {(['thin', 'medium', 'thick'] as const).map(t => (
+                               <button
+                                 key={t}
+                                 type="button"
+                                 onClick={() => setTraceConfig(prev => ({ ...prev, lineThickness: t }))}
+                                 className={`flex-1 py-2 rounded-lg text-sm font-bold capitalize transition-all ${
+                                   traceConfig.lineThickness === t ? 'bg-orange-100 text-orange-700 shadow-sm' : 'text-slate-400 hover:text-slate-600'
+                                 }`}
+                               >
+                                 {t}
+                               </button>
+                             ))}
+                          </div>
+                        </div>
+
+                         {/* Spacing */}
+                         <div>
+                          <label className="block text-sm font-bold text-slate-500 mb-2">Grid Spacing</label>
+                          <div className="flex bg-white rounded-xl border border-orange-200 p-1">
+                             {(['compact', 'normal', 'wide'] as const).map(s => (
+                               <button
+                                 key={s}
+                                 type="button"
+                                 onClick={() => setTraceConfig(prev => ({ ...prev, spacing: s }))}
+                                 className={`flex-1 py-2 rounded-lg text-sm font-bold capitalize transition-all ${
+                                   traceConfig.spacing === s ? 'bg-orange-100 text-orange-700 shadow-sm' : 'text-slate-400 hover:text-slate-600'
+                                 }`}
+                               >
+                                 {s}
+                               </button>
+                             ))}
+                          </div>
+                        </div>
+                     </div>
+                  </div>
+                )}
+
                 {/* Font Selection */}
                 <div>
                   <label className="block text-xl font-display font-bold mb-3 text-dark">
                     Choose a font style
                   </label>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    {FONTS.map((font) => (
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                    {FONTS.map((font) => {
+                      const showName = childName && childName.length <= 12;
+                      const previewText = showName ? childName : "Abc";
+                      const textSizeClass = showName && childName.length > 8 ? "text-3xl" : "text-5xl";
+
+                      return (
                       <button
                         key={font.id}
                         type="button"
                         onClick={() => setSelectedFont(font.id)}
-                        className={`group p-4 rounded-2xl border-2 transition-all duration-300 relative flex flex-col items-center justify-center gap-2 h-32 ${
+                        className={`group relative h-36 rounded-2xl border-2 transition-all duration-300 flex flex-col items-center justify-center p-2 overflow-hidden ${
                           selectedFont === font.id
-                            ? 'border-primary bg-primary/5 ring-1 ring-primary shadow-sm'
-                            : 'border-slate-100 bg-white hover:border-slate-300 hover:shadow-md'
+                            ? 'border-primary bg-indigo-50/50 ring-2 ring-primary ring-offset-2 shadow-md scale-[1.02]'
+                            : 'border-slate-100 bg-white hover:border-slate-300 hover:shadow-lg hover:-translate-y-1'
                         }`}
                       >
+                         {/* Background Pattern for selected */}
+                         {selectedFont === font.id && (
+                           <div className="absolute inset-0 opacity-10 bg-[radial-gradient(#6366F1_1px,transparent_1px)] [background-size:16px_16px]"></div>
+                         )}
+
                         <span 
-                          className="text-4xl text-dark transition-transform duration-300 group-hover:scale-110"
+                          className={`${textSizeClass} text-dark transition-all duration-300 group-hover:scale-110 z-10`}
                           style={{ fontFamily: font.family }}
                         >
-                          {childName ? (childName.length > 10 ? "Aa" : childName) : "Aa"}
+                          {previewText}
                         </span>
-                        <span className="text-xs text-slate-400 font-sans font-bold tracking-wider uppercase">
+                        
+                        <span className="absolute bottom-3 text-[10px] text-slate-400 font-sans font-bold tracking-widest uppercase z-10 bg-white/50 px-2 rounded-full backdrop-blur-[1px]">
                           {font.label}
                         </span>
+                        
                         {selectedFont === font.id && (
-                          <div className="absolute top-2 right-2 text-primary bg-white rounded-full p-0.5 shadow-sm">
+                          <div className="absolute top-3 right-3 text-white bg-primary rounded-full p-1 shadow-sm z-20 animate-in zoom-in duration-200">
                             <CheckCircle2 className="w-4 h-4" />
                           </div>
                         )}
                       </button>
-                    ))}
+                    )})}
                   </div>
                 </div>
 
